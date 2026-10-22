@@ -1,0 +1,6 @@
+{
+  "name": "DoraPocket Birthday Studio",
+  "description": "A Doraemon-inspired interactive birthday website builder where anyone can customize details, upload photo memories, add 4D pocket surprises, preview live, and share a magical birthday microsite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
