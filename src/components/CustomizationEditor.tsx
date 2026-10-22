@@ -7,13 +7,16 @@ import {
   ExperienceStepId,
   GadgetKey,
   LayoutStyle,
+  MusicTrackSource,
   PhotoMemory,
 } from '../types/birthday';
 import {
+  DEFAULT_BIRTHDAY_CONFIG,
   DEFAULT_MEMORIES,
   applyCharacterPreset,
   createMemorySceneDataUri,
   encodeShareConfig,
+  extractYouTubeVideoId,
   moveItemInArray,
   validateBirthdayDetails,
 } from '../utils/birthdayLogic';
@@ -40,6 +43,10 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Music,
+  Play,
+  Pause,
+  Volume2,
 } from 'lucide-react';
 
 interface CustomizationEditorProps {
@@ -52,6 +59,8 @@ interface CustomizationEditorProps {
   onResetDefault: () => void;
   onOpenFullscreenExperience: () => void;
   lastSavedAt: string | null;
+  isMusicPlaying?: boolean;
+  onToggleMusic?: () => void;
 }
 
 export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
@@ -64,9 +73,12 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   onResetDefault,
   onOpenFullscreenExperience,
   lastSavedAt,
+  isMusicPlaying = false,
+  onToggleMusic,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonImportRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
 
   const [copiedLink, setCopiedLink] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -102,6 +114,272 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       ...config,
       [key]: value,
     });
+  };
+
+  const currentMusic = config.music || DEFAULT_BIRTHDAY_CONFIG.music;
+
+  const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        const cleanTitle =
+          file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') ||
+          'Custom Birthday Track';
+        updateField('music', {
+          ...currentMusic,
+          source: 'custom-upload',
+          trackTitle: cleanTitle,
+          customAudioDataUrl: reader.result,
+        });
+        showToast(`Uploaded audio track "${cleanTitle}" 🎵`);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const renderMusicSettingsSection = () => {
+    const tracks: {
+      id: MusicTrackSource;
+      title: string;
+      subtitle: string;
+      badge: string;
+    }[] = [
+      {
+        id: 'youtube',
+        title: 'Doraemon Cartoon Theme (Original)',
+        subtitle: 'YouTube · Yume wo Kanaete / Classic Doraemon BGM',
+        badge: 'YouTube 🎬',
+      },
+      {
+        id: 'synth-dora-march',
+        title: '22nd-Century Pocket March',
+        subtitle: 'Upbeat anime-inspired chime melody (Built-in)',
+        badge: 'Chime Synth 🔔',
+      },
+      {
+        id: 'synth-music-box',
+        title: 'Anywhere Door Music Box',
+        subtitle: 'Gentle nostalgic music box lullaby (Built-in)',
+        badge: 'Music Box ✨',
+      },
+      {
+        id: 'synth-birthday-bell',
+        title: 'Golden Bell Birthday Song',
+        subtitle: 'Celebratory Happy Birthday bell arrangement',
+        badge: 'Birthday 🎂',
+      },
+    ];
+
+    return (
+      <div className="p-4 sm:p-5 rounded-2xl bg-[#EAF7FF]/75 border border-[#64C8FF]/60 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display text-sm sm:text-base font-bold text-[#183247] flex items-center gap-1.5">
+              <Music className="w-4 h-4 text-[#168DCE]" />
+              <span>Background Music Track 🎵</span>
+            </h3>
+            <p className="text-xs text-[#183247]/70">
+              Select the Doraemon cartoon theme, paste a YouTube link, or upload
+              your own audio file (.mp3, .wav, .ogg).
+            </p>
+          </div>
+
+          {onToggleMusic && (
+            <button
+              type="button"
+              onClick={onToggleMusic}
+              className={`px-3.5 py-2 rounded-xl text-xs font-display font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                isMusicPlaying
+                  ? 'bg-[#FFD84D] text-[#183247] border border-[#183247]/20 shadow-xs'
+                  : 'bg-[#168DCE] hover:bg-[#1276AD] text-white shadow-xs'
+              }`}
+            >
+              {isMusicPlaying ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Pause Preview Music</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Test Play Music 🎵</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Curated Track Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {tracks.map((track) => {
+            const active = currentMusic.source === track.id;
+            return (
+              <button
+                key={track.id}
+                type="button"
+                onClick={() => {
+                  const nextYoutubeUrl =
+                    track.id === 'youtube'
+                      ? currentMusic.youtubeUrl ||
+                        'https://www.youtube.com/watch?v=iwncGYFPxmU'
+                      : currentMusic.youtubeUrl;
+                  const nextVideoId =
+                    track.id === 'youtube'
+                      ? extractYouTubeVideoId(nextYoutubeUrl) || 'iwncGYFPxmU'
+                      : currentMusic.youtubeVideoId;
+                  updateField('music', {
+                    ...currentMusic,
+                    source: track.id,
+                    trackTitle: track.title,
+                    youtubeUrl: nextYoutubeUrl,
+                    youtubeVideoId: nextVideoId,
+                  });
+                  showToast(`Selected "${track.title}" 🎵`);
+                }}
+                className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                  active
+                    ? 'bg-white border-[#168DCE] shadow-xs'
+                    : 'bg-white/70 border-[#64C8FF]/40 hover:border-[#64C8FF]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 w-full">
+                  <span className="font-display font-bold text-xs text-[#183247]">
+                    {track.title}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                      active
+                        ? 'bg-[#FFD84D] text-[#183247]'
+                        : 'bg-[#EAF7FF] text-[#168DCE]'
+                    }`}
+                  >
+                    {track.badge}
+                  </span>
+                </div>
+                <span className="text-[11px] text-[#183247]/65">
+                  {track.subtitle}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* YouTube Link Customization when YouTube track is active (or to switch to YouTube) */}
+        <div className="p-3.5 rounded-xl bg-white border border-[#64C8FF]/50 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs font-bold text-[#183247]">
+              Doraemon YouTube Music URL
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                updateField('music', {
+                  ...currentMusic,
+                  source: 'youtube',
+                  trackTitle: 'Doraemon Cartoon Theme (Original)',
+                  youtubeUrl: 'https://www.youtube.com/watch?v=iwncGYFPxmU',
+                  youtubeVideoId: 'iwncGYFPxmU',
+                });
+                showToast('Restored official Doraemon Cartoon Theme 🎵');
+              }}
+              className="text-[11px] font-semibold text-[#168DCE] hover:underline cursor-pointer"
+            >
+              Reset Default Doraemon Link
+            </button>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="url"
+              value={currentMusic.youtubeUrl}
+              aria-label="Doraemon YouTube Music URL"
+              onChange={(e) => {
+                const rawUrl = e.target.value;
+                const extracted = extractYouTubeVideoId(rawUrl);
+                updateField('music', {
+                  ...currentMusic,
+                  source: 'youtube',
+                  trackTitle:
+                    rawUrl.includes('iwncGYFPxmU') || !rawUrl.trim()
+                      ? 'Doraemon Cartoon Theme (Original)'
+                      : 'Custom YouTube Doraemon Track',
+                  youtubeUrl: rawUrl,
+                  youtubeVideoId: extracted || currentMusic.youtubeVideoId || 'iwncGYFPxmU',
+                });
+              }}
+              placeholder="https://www.youtube.com/watch?v=iwncGYFPxmU"
+              className="flex-1 px-3 py-2 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF]/60 text-xs text-[#183247] focus:outline-none focus:border-[#168DCE]"
+            />
+          </div>
+          <p className="text-[11px] text-[#183247]/65">
+            Default track: Doraemon Cartoon Music (
+            <code className="text-[#168DCE] font-semibold">
+              youtube.com/watch?v=iwncGYFPxmU
+            </code>
+            ) · Active Video ID:{' '}
+            <span className="font-semibold text-[#183247]">
+              {currentMusic.youtubeVideoId || 'iwncGYFPxmU'}
+            </span>
+          </p>
+        </div>
+
+        {/* Upload Custom Audio File (.mp3 / .wav / .ogg) & Volume Control */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center pt-1">
+          <div>
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              onChange={handleAudioFileUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => audioInputRef.current?.click()}
+              className={`w-full px-3.5 py-2.5 rounded-xl border-2 border-dashed text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                currentMusic.source === 'custom-upload'
+                  ? 'bg-white border-[#168DCE] text-[#168DCE]'
+                  : 'bg-white/80 hover:bg-white border-[#64C8FF] text-[#183247]'
+              }`}
+            >
+              <Upload className="w-3.5 h-3.5 text-[#168DCE] shrink-0" />
+              <span className="truncate">
+                {currentMusic.source === 'custom-upload'
+                  ? `Audio: ${currentMusic.trackTitle}`
+                  : 'Upload Audio (.MP3 / .WAV)'}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2.5 bg-white px-3.5 py-2 rounded-xl border border-[#64C8FF]/50">
+            <Volume2 className="w-4 h-4 text-[#168DCE] shrink-0" />
+            <label
+              htmlFor="music-volume-slider"
+              className="text-xs font-semibold text-[#183247] whitespace-nowrap"
+            >
+              Volume: {currentMusic.volume}%
+            </label>
+            <input
+              id="music-volume-slider"
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={currentMusic.volume}
+              onChange={(e) =>
+                updateField('music', {
+                  ...currentMusic,
+                  volume: Number(e.target.value),
+                })
+              }
+              className="w-full accent-[#168DCE] cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // Handle Multi-Photo File Upload
@@ -802,6 +1080,9 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
         {/* TAB C: BIRTHDAY EXPERIENCE (SECTIONS, GADGETS, LETTER, WISHES, FUNNY MOMENTS) */}
         {activeTab === 'experience' && (
           <div className="space-y-7">
+            {/* Background Music Selector & Upload */}
+            {renderMusicSettingsSection()}
+
             {/* Section Visibility Toggles */}
             <div className="space-y-3">
               <h2 className="font-display text-xl font-bold text-[#183247]">
@@ -1390,6 +1671,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   </span>
                 </button>
               </div>
+            </div>
+
+            {/* 4. Background Music Track Selector & Upload */}
+            <div className="pt-2 border-t border-[#EAF7FF]">
+              {renderMusicSettingsSection()}
             </div>
           </div>
         )}

@@ -53,6 +53,23 @@ export interface SectionVisibility {
 export type LayoutStyle = 'classic-pocket' | 'anywhere-storybook' | 'starlight-cloud';
 export type AccentTheme = 'dora-blue' | 'bell-gold' | 'collar-red' | 'dorami-sky';
 
+export type MusicTrackSource =
+  | 'youtube'
+  | 'synth-dora-march'
+  | 'synth-music-box'
+  | 'synth-birthday-bell'
+  | 'custom-upload';
+
+export interface MusicConfig {
+  source: MusicTrackSource;
+  trackTitle: string;
+  youtubeUrl: string;
+  youtubeVideoId: string;
+  customAudioDataUrl?: string;
+  customFileName?: string;
+  volume: number; // 0 to 100
+}
+
 export interface AppearanceConfig {
   layout: LayoutStyle;
   accent: AccentTheme;
@@ -84,8 +101,9 @@ export interface BirthdayConfig {
   gadgetSurprises: GadgetSurprise[];
   sections: SectionVisibility;
 
-  // (d) Appearance
+  // (d) Appearance & Music
   appearance: AppearanceConfig;
+  music: MusicConfig;
 
   // Final Greeting
   finalHeadline: string;

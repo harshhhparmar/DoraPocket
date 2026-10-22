@@ -5,6 +5,7 @@ import {
   applyCharacterPreset,
   decodeShareConfig,
   encodeShareConfig,
+  extractYouTubeVideoId,
   formatOrdinalAge,
   getActiveExperienceSteps,
   moveItemInArray,
@@ -90,4 +91,23 @@ test('encodeShareConfig and decodeShareConfig round-trip custom birthday configu
   assert.equal(decoded?.recipientName, 'Shizuka');
   assert.equal(decoded?.headline, 'Happy Birthday, Shizuka! 🎂✨');
   assert.equal(decoded?.appearance.layout, 'anywhere-storybook');
+  assert.equal(decoded?.music.youtubeVideoId, 'iwncGYFPxmU');
 });
+
+test('extractYouTubeVideoId parses watch, short, embed, and bare Doraemon video IDs', () => {
+  assert.equal(
+    extractYouTubeVideoId('https://www.youtube.com/watch?v=iwncGYFPxmU'),
+    'iwncGYFPxmU'
+  );
+  assert.equal(
+    extractYouTubeVideoId('https://youtu.be/iwncGYFPxmU?si=12345'),
+    'iwncGYFPxmU'
+  );
+  assert.equal(
+    extractYouTubeVideoId('https://www.youtube.com/embed/iwncGYFPxmU'),
+    'iwncGYFPxmU'
+  );
+  assert.equal(extractYouTubeVideoId('iwncGYFPxmU'), 'iwncGYFPxmU');
+  assert.equal(extractYouTubeVideoId('https://example.com/not-youtube'), null);
+});
+

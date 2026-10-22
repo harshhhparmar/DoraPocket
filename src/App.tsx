@@ -50,6 +50,10 @@ export default function App() {
                 ...DEFAULT_BIRTHDAY_CONFIG.appearance,
                 ...(parsed.appearance || {}),
               },
+              music: {
+                ...DEFAULT_BIRTHDAY_CONFIG.music,
+                ...(parsed.music || {}),
+              },
             };
           }
         }
@@ -80,6 +84,7 @@ export default function App() {
   const [mobilePane, setMobilePane] = useState<MobileStudioPane>('edit');
   const [confettiActive, setConfettiActive] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
 
   const triggerConfetti = useCallback(() => {
     setConfettiActive(true);
@@ -346,6 +351,8 @@ export default function App() {
                   onResetDefault={handleResetDefault}
                   onOpenFullscreenExperience={() => setViewMode('experience')}
                   lastSavedAt={lastSavedAt}
+                  isMusicPlaying={isMusicPlaying}
+                  onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
                 />
               </div>
 
@@ -376,6 +383,8 @@ export default function App() {
                     onTriggerConfetti={triggerConfetti}
                     isFullscreen={false}
                     onToggleFullscreen={() => setViewMode('experience')}
+                    isMusicPlaying={isMusicPlaying}
+                    onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
                   />
                 </div>
               </div>
@@ -416,6 +425,8 @@ export default function App() {
               onTriggerConfetti={triggerConfetti}
               isFullscreen={true}
               onToggleFullscreen={() => setViewMode('studio')}
+              isMusicPlaying={isMusicPlaying}
+              onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
             />
           </section>
         )}

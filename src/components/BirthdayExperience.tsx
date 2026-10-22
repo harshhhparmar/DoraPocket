@@ -16,6 +16,7 @@ import {
   GadgetIllustration,
 } from './DoraemonIllustrations';
 import { playBellChime } from '../utils/soundEffects';
+import { BackgroundMusicPlayer } from './BackgroundMusicPlayer';
 import {
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,8 @@ interface BirthdayExperienceProps {
   onTriggerConfetti: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  isMusicPlaying?: boolean;
+  onToggleMusic?: () => void;
 }
 
 export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
@@ -45,6 +48,8 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   onTriggerConfetti,
   isFullscreen = false,
   onToggleFullscreen,
+  isMusicPlaying: externalMusicPlaying,
+  onToggleMusic: externalToggleMusic,
 }) => {
   const steps = getActiveExperienceSteps(config.sections);
   const currentStepIndex = Math.max(
@@ -54,6 +59,19 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   const currentStep = steps[currentStepIndex] || steps[0];
 
   const [isDoorOpen, setIsDoorOpen] = useState(false);
+  const [internalMusicPlaying, setInternalMusicPlaying] = useState(false);
+  const isMusicPlaying =
+    typeof externalMusicPlaying === 'boolean'
+      ? externalMusicPlaying
+      : internalMusicPlaying;
+  const handleToggleMusic = () => {
+    if (externalToggleMusic) {
+      externalToggleMusic();
+    } else {
+      setInternalMusicPlaying((prev) => !prev);
+    }
+  };
+
   const [unlockedGadgetIds, setUnlockedGadgetIds] = useState<string[]>([
     config.gadgetSurprises[0]?.id || 'gad-1',
   ]);
@@ -131,9 +149,9 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
         layoutContainerStyles[config.appearance.layout]
       } ${isFullscreen ? 'min-h-[68vh] max-w-4xl mx-auto p-6 sm:p-8' : 'min-h-[540px] p-5 sm:p-6'}`}
     >
-      {/* Top Microsite Header: Step Progress & Navigation Pills */}
+      {/* Top Microsite Header: Step Progress & Corner Music Player + Controls */}
       <div className="space-y-3 pb-4 border-b border-[#EAF7FF]">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             {config.appearance.showDoraemonBellBadge && <DoraBellBadge size={30} />}
             <div className="truncate">
@@ -149,8 +167,22 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-mono-num text-[#168DCE] font-semibold">
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <BackgroundMusicPlayer
+              music={
+                config.music || {
+                  source: 'youtube',
+                  trackTitle: 'Doraemon Cartoon Theme (Original)',
+                  youtubeUrl: 'https://www.youtube.com/watch?v=iwncGYFPxmU',
+                  youtubeVideoId: 'iwncGYFPxmU',
+                  volume: 75,
+                }
+              }
+              isPlaying={isMusicPlaying}
+              onTogglePlay={handleToggleMusic}
+            />
+
+            <span className="text-xs font-mono-num text-[#168DCE] font-semibold hidden sm:inline">
               {progressPercentage}%
             </span>
             {onToggleFullscreen && (

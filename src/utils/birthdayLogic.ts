@@ -325,10 +325,42 @@ export const DEFAULT_BIRTHDAY_CONFIG: BirthdayConfig = {
     soundChimes: true,
     showDoraemonBellBadge: true,
   },
+  music: {
+    source: 'youtube',
+    trackTitle: 'Doraemon Cartoon Theme (Original)',
+    youtubeUrl: 'https://www.youtube.com/watch?v=iwncGYFPxmU',
+    youtubeVideoId: 'iwncGYFPxmU',
+    volume: 75,
+  },
   finalHeadline: 'Make a Wish & Blow Out the Candles! 🎂✨',
   finalSubtext:
     'Here is to another trip around the sun filled with blue skies, warm dorayaki, and pockets full of dreams.',
 };
+
+/**
+ * Extracts an 11-character YouTube video ID from standard watch URLs, short youtu.be URLs,
+ * embed URLs, shorts URLs, or bare 11-character video IDs.
+ */
+export function extractYouTubeVideoId(input: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const patterns = [
+    /[?&]v=([a-zA-Z0-9_-]{11})/,
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
 
 /**
  * Computes the ordered list of steps for the interactive Birthday Experience
@@ -473,10 +505,14 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
 
 /**
  * Encodes a shareable lightweight copy of BirthdayConfig into a URL-safe base64 string.
- * Strips large custom base64 photo uploads over 4KB so URLs stay compact, preserving scenePreset.
+ * Strips large custom base64 photo/audio uploads over 4KB so URLs stay compact.
  */
 export function encodeShareConfig(config: BirthdayConfig): string {
   try {
+    const hasOversizedAudio =
+      config.music?.customAudioDataUrl &&
+      config.music.customAudioDataUrl.length > 4000;
+
     const compactConfig: BirthdayConfig = {
       ...config,
       memories: config.memories.map((m) => ({
@@ -488,6 +524,15 @@ export function encodeShareConfig(config: BirthdayConfig): string {
             ? createMemorySceneDataUri('sunset-hill')
             : m.imageUrl,
       })),
+      music: {
+        ...(config.music || DEFAULT_BIRTHDAY_CONFIG.music),
+        source: hasOversizedAudio
+          ? 'youtube'
+          : config.music?.source || 'youtube',
+        customAudioDataUrl: hasOversizedAudio
+          ? undefined
+          : config.music?.customAudioDataUrl,
+      },
     };
     const json = JSON.stringify(compactConfig);
     const bytes = new TextEncoder().encode(json);
@@ -527,6 +572,10 @@ export function decodeShareConfig(encoded: string): BirthdayConfig | null {
       appearance: {
         ...DEFAULT_BIRTHDAY_CONFIG.appearance,
         ...(parsed.appearance || {}),
+      },
+      music: {
+        ...DEFAULT_BIRTHDAY_CONFIG.music,
+        ...(parsed.music || {}),
       },
     };
   } catch {
@@ -610,6 +659,7 @@ export function applyCharacterPreset(
       return {
         ...DEFAULT_BIRTHDAY_CONFIG,
         memories: current.memories.length > 0 ? current.memories : DEFAULT_MEMORIES,
+        music: current.music || DEFAULT_BIRTHDAY_CONFIG.music,
       };
   }
 }
