@@ -507,20 +507,24 @@ export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v1';
 
 /**
  * Builds a compact, Nginx-safe short-ID share URL (e.g., https://example.com/?s=dora7x9k).
- * Never embeds configuration JSON, wishes, or base64 photo data in URL query parameters.
+ * Automatically converts private AI Studio dev preview origins (https://ais-dev-...)
+ * to the publicly accessible Shared App origin (https://ais-pre-...) so shared links
+ * open in any browser tab without iframe authentication errors.
  */
 export function buildCompactShareUrl(
   origin: string,
   pathname: string,
   shortId: string
 ): string {
-  const cleanOrigin = (origin || '').replace(/\/+$/, '');
+  const publicOrigin = (origin || '')
+    .replace(/\/+$/, '')
+    .replace(/^https:\/\/ais-dev-/, 'https://ais-pre-');
   const cleanPath = pathname && pathname.startsWith('/') ? pathname : '/';
   const safeId = (shortId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
   if (!safeId) {
-    return `${cleanOrigin}${cleanPath}`;
+    return `${publicOrigin}${cleanPath}`;
   }
-  return `${cleanOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
+  return `${publicOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
 }
 
 /**
@@ -537,7 +541,9 @@ export function extractShareIdFromSearch(search: string): string | null {
 }
 
 /**
- * Normalizes a partial or retrieved BirthdayConfig with safe defaults for all nested fields.
+ * Normalizes a partial or retrieved BirthdayConfig with safe defaults for all nested fields,
+ * and normalizes /api/uploads/ paths to static /uploads/ paths so images load on both
+ * Express and static SPA hosts.
  */
 export function normalizeBirthdayConfig(
   parsed: Partial<BirthdayConfig> | null | undefined
@@ -545,12 +551,36 @@ export function normalizeBirthdayConfig(
   if (!parsed || typeof parsed !== 'object') {
     return DEFAULT_BIRTHDAY_CONFIG;
   }
+  const rawMemories = Array.isArray(parsed.memories)
+    ? parsed.memories
+    : DEFAULT_BIRTHDAY_CONFIG.memories;
+
+  const normalizedMemories = rawMemories.map((m) => ({
+    ...m,
+    imageUrl:
+      typeof m.imageUrl === 'string' && m.imageUrl.startsWith('/api/uploads/')
+        ? m.imageUrl.replace(/^\/api\/uploads\//, '/uploads/')
+        : m.imageUrl,
+  }));
+
+  const rawMusic = {
+    ...DEFAULT_BIRTHDAY_CONFIG.music,
+    ...(parsed.music || {}),
+  };
+  if (
+    typeof rawMusic.customAudioDataUrl === 'string' &&
+    rawMusic.customAudioDataUrl.startsWith('/api/uploads/')
+  ) {
+    rawMusic.customAudioDataUrl = rawMusic.customAudioDataUrl.replace(
+      /^\/api\/uploads\//,
+      '/uploads/'
+    );
+  }
+
   return {
     ...DEFAULT_BIRTHDAY_CONFIG,
     ...parsed,
-    memories: Array.isArray(parsed.memories)
-      ? parsed.memories
-      : DEFAULT_BIRTHDAY_CONFIG.memories,
+    memories: normalizedMemories,
     wishes: Array.isArray(parsed.wishes)
       ? parsed.wishes
       : DEFAULT_BIRTHDAY_CONFIG.wishes,
@@ -568,10 +598,7 @@ export function normalizeBirthdayConfig(
       ...DEFAULT_BIRTHDAY_CONFIG.appearance,
       ...(parsed.appearance || {}),
     },
-    music: {
-      ...DEFAULT_BIRTHDAY_CONFIG.music,
-      ...(parsed.music || {}),
-    },
+    music: rawMusic,
   };
 }
 

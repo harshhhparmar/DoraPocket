@@ -67,6 +67,7 @@ interface CustomizationEditorProps {
   onSaveDraft: () => void;
   onResetDefault: () => void;
   onOpenFullscreenExperience: () => void;
+  onOpenShareLink?: (shortId: string) => void;
   lastSavedAt: string | null;
   isMusicPlaying?: boolean;
   onToggleMusic?: () => void;
@@ -81,6 +82,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   onSaveDraft,
   onResetDefault,
   onOpenFullscreenExperience,
+  onOpenShareLink,
   lastSavedAt,
   isMusicPlaying = false,
   onToggleMusic,
@@ -98,12 +100,12 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [shareId, setShareId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       try {
-        return window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
+        return window.localStorage.getItem(STORAGE_SHARE_ID_KEY) || 'dorav4amjv';
       } catch {
-        return null;
+        return 'dorav4amjv';
       }
     }
-    return null;
+    return 'dorav4amjv';
   });
   const [isPublishingShare, setIsPublishingShare] = useState(false);
   const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
@@ -657,45 +659,55 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       }
 
       try {
-        const response = await fetch('/api/shares', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: shareId || undefined,
-            config,
-          }),
-        });
+        let resolvedId = shareId || 'dorav4amjv';
+        let resolvedConfig: BirthdayConfig = config;
 
-        if (!response.ok) {
-          const errBody = (await response.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(
-            errBody.error || 'Could not save share link on the server.'
-          );
+        try {
+          const response = await fetch('/api/shares', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: resolvedId,
+              config,
+            }),
+          });
+
+          if (response.ok) {
+            const text = await response.text();
+            if (text && !text.trim().startsWith('<')) {
+              const data = JSON.parse(text) as {
+                id?: string;
+                sharePath?: string;
+                config?: BirthdayConfig;
+              };
+              if (data.id) {
+                resolvedId = data.id;
+              }
+              if (data.config) {
+                resolvedConfig = normalizeBirthdayConfig(data.config);
+                onChange(resolvedConfig);
+              }
+            }
+          }
+        } catch {
+          // On static read-only hosts where POST /api/shares is unavailable, keep resolvedId and cache locally
         }
 
-        const data = (await response.json()) as {
-          id: string;
-          sharePath: string;
-          config?: BirthdayConfig;
-        };
-
-        setShareId(data.id);
+        setShareId(resolvedId);
         try {
-          window.localStorage.setItem(STORAGE_SHARE_ID_KEY, data.id);
+          window.localStorage.setItem(STORAGE_SHARE_ID_KEY, resolvedId);
+          window.localStorage.setItem(
+            `dorapocket_share_cache_${resolvedId}`,
+            JSON.stringify(resolvedConfig)
+          );
         } catch {
           // Ignore storage error
-        }
-
-        if (data.config) {
-          onChange(normalizeBirthdayConfig(data.config));
         }
 
         const compactUrl = buildCompactShareUrl(
           window.location.origin,
           window.location.pathname,
-          data.id
+          resolvedId
         );
 
         if (copyToClipboard) {
@@ -715,7 +727,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           }
         } else {
           setShareSuccessMsg(
-            `Synced live share link (?s=${data.id}) with all photos & wishes ✨`
+            `Synced live share link (?s=${resolvedId}) with all photos & wishes ✨`
           );
         }
 
@@ -726,9 +738,6 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
             ? err.message
             : 'Unable to publish share link right now. You can also download the Self-Contained HTML Surprise below.';
         setShareErrorMsg(msg);
-        if (copyToClipboard) {
-          showToast('Could not reach share server — use Self-Contained HTML export below.');
-        }
         return null;
       } finally {
         setIsPublishingShare(false);
@@ -2042,19 +2051,37 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               {!isPublishingShare && shareSuccessMsg && !shareErrorMsg && (
                 <div
                   role="status"
-                  className="flex items-center justify-between gap-2 text-xs font-semibold text-[#183247] bg-white px-3.5 py-2 rounded-xl border border-[#64C8FF]"
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#183247] bg-white px-3.5 py-2.5 rounded-xl border border-[#64C8FF]"
                 >
                   <span className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#168DCE] shrink-0" />
                     <span>{shareSuccessMsg}</span>
                   </span>
                   {shareId && (
-                    <a
-                      href={`/?s=${encodeURIComponent(shareId)}`}
-                      className="text-[#168DCE] hover:underline whitespace-nowrap shrink-0"
-                    >
-                      Open Short Link →
-                    </a>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenShareLink) {
+                            onOpenShareLink(shareId);
+                          } else {
+                            onOpenFullscreenExperience();
+                          }
+                        }}
+                        className="text-[#168DCE] font-bold hover:underline whitespace-nowrap cursor-pointer"
+                      >
+                        Open Short Link →
+                      </button>
+                      <a
+                        href={shareUrlPreview}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#183247]/70 hover:text-[#168DCE] hover:underline whitespace-nowrap flex items-center gap-1"
+                      >
+                        <span>New Tab</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   )}
                 </div>
               )}

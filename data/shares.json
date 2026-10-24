@@ -1,0 +1,153 @@
+{
+  "dorav4amjv": {
+    "id": "dorav4amjv",
+    "config": {
+      "recipientName": "Svetang",
+      "age": 21,
+      "birthdayDate": "2026-08-27",
+      "nickname": "Setyo",
+      "senderName": "harsh",
+      "relationship": "",
+      "headline": "Happy Birthday, Svetu Darling! 🎂",
+      "personalMessage": "Life me kuchh bhi ho jaye bas haste rahiyo mittar! 😘😘",
+      "memories": [
+        {
+          "id": "upload-1792694936399-0",
+          "imageUrl": "/uploads/cropped-photo-c29ee7e5df85.png",
+          "caption": "",
+          "dateLabel": "Uploaded Memory · Special Day",
+          "story": "A favorite snapshot added to our birthday time capsule."
+        },
+        {
+          "id": "upload-1792694961676-0",
+          "imageUrl": "/uploads/photo-2-48c2f997d643.jpg",
+          "caption": "",
+          "dateLabel": "Uploaded Memory · Special Day",
+          "story": "A favorite snapshot added to our birthday time capsule."
+        },
+        {
+          "id": "upload-1792694977994-0",
+          "imageUrl": "/uploads/photo-3-60e77ee6d104.jpg",
+          "caption": "Badmosh",
+          "dateLabel": "Uploaded Memory · Special Day",
+          "story": "A favorite snapshot added to our birthday time capsule."
+        }
+      ],
+      "letterGreeting": "Dearest Setu,",
+      "letterBody": "Do you remember all the afternoons we spent wishing for a shortcut or a magic gadget to make life easier? Looking back at every adventure we have shared, the real magic was never inside the 4D Pocket—it was how you never stopped caring about your friends.\n\nAs you turn 21 today, may your skies always stay clear and bright blue, may your plate always have warm dorayaki waiting, and may every door you open lead to a year full of courage, laughter, and unforgettable memories.",
+      "letterSignOff": "With a ringing golden bell & endless cheers, Doraemon 🔔💙",
+      "wishes": [
+        {
+          "id": "wish-1",
+          "senderName": "Shizuka Minamoto",
+          "character": "shizuka",
+          "roleLabel": "Childhood Friend",
+          "message": "Happy Birthday! I baked a special sweet potato & strawberry cake just for today. Never lose your gentle heart! 🎂✨"
+        },
+        {
+          "id": "wish-2",
+          "senderName": "Takeshi \"Gian\" Goda",
+          "character": "gian",
+          "roleLabel": "Neighborhood MVP",
+          "message": "Hey pal!! Today I am dedicating a 2-hour birthday concert just for you—no earplugs allowed! Have an epic year! 🎤🎉"
+        },
+        {
+          "id": "wish-3",
+          "senderName": "Suneo Honekawa",
+          "character": "suneo",
+          "roleLabel": "Adventure Co-Pilot",
+          "message": "Happy Birthday! Next weekend the RC planes and front-row tickets are on me. Let us make this year legendary! ✈️🌟"
+        },
+        {
+          "id": "wish-4",
+          "senderName": "Dorami",
+          "character": "dorami",
+          "roleLabel": "22nd Century Sister",
+          "message": "Sending melon bread and bright yellow ribbons from the future! Wishing you 365 days of happiness and zero homework stress! 🎀💛"
+        }
+      ],
+      "funnyMoments": [
+        {
+          "id": "moment-1",
+          "title": "The Great Alarm Clock Snooze Record",
+          "episodeTag": "Episode 01 · Morning Dash",
+          "description": "Managed to hit snooze 7 times in 12 minutes and still arrived with toast in mouth right before the bell rang.",
+          "emoji": "⏰"
+        },
+        {
+          "id": "moment-2",
+          "title": "Memory Bread Cramming Session",
+          "episodeTag": "Episode 02 · Exam Night",
+          "description": "Tried to memorize an entire textbook over midnight snacks and ended up falling asleep on page three.",
+          "emoji": "🍞"
+        },
+        {
+          "id": "moment-3",
+          "title": "Bamboo Copter Hair Day",
+          "episodeTag": "Episode 03 · Windy Rooftop",
+          "description": "Took a shortcut across town in a headwind and showed up to the party with gravity-defying hair.",
+          "emoji": "🚁"
+        }
+      ],
+      "gadgetSurprises": [
+        {
+          "id": "gad-1",
+          "gadget": "anywhere-door",
+          "gadgetName": "Anywhere Door (Dokodemo Door)",
+          "surpriseTitle": "1 Free Weekend Trip Pass 🚪",
+          "surpriseMessage": "Open this pink door whenever you need a break! Good for one spontaneous road trip or café adventure together, my treat.",
+          "unlockedHint": "Destination: Anywhere you want to go!"
+        },
+        {
+          "id": "gad-2",
+          "gadget": "bamboo-copter",
+          "gadgetName": "Bamboo Copter (Take-copter)",
+          "surpriseTitle": "Sky-High Rooftop Dinner 🚁",
+          "surpriseMessage": "Let us soar above the busy week with a sunset dinner overlooking the city lights.",
+          "unlockedHint": "Altitude: Cloud Nine"
+        },
+        {
+          "id": "gad-3",
+          "gadget": "memory-bread",
+          "gadgetName": "Memory Bread",
+          "surpriseTitle": "Zero-Stress Free Pass 🍞",
+          "surpriseMessage": "Redeem this gadget on any busy week when you want chores, errands, or coffee runs handled for you!",
+          "unlockedHint": "100% Worry-Free Guarantee"
+        },
+        {
+          "id": "gad-4",
+          "gadget": "time-kerchief",
+          "gadgetName": "Time Kerchief",
+          "surpriseTitle": "Nostalgia Movie Marathon 🧣",
+          "surpriseMessage": "Flip the red-and-blue kerchief to rewind time for an all-night marathon of our favorite childhood movies & snacks.",
+          "unlockedHint": "Time Setting: Childhood Gold"
+        }
+      ],
+      "sections": {
+        "showMemoriesGallery": true,
+        "showGadgetSurprises": false,
+        "showFunnyMoments": false,
+        "showHeartfeltLetter": false,
+        "showFriendsWishes": false
+      },
+      "appearance": {
+        "layout": "anywhere-storybook",
+        "accent": "dora-blue",
+        "floatingAnimations": true,
+        "soundChimes": true,
+        "showDoraemonBellBadge": true
+      },
+      "music": {
+        "source": "youtube",
+        "trackTitle": "Doraemon Cartoon Theme (Original)",
+        "youtubeUrl": "https://www.youtube.com/watch?v=iwncGYFPxmU",
+        "youtubeVideoId": "iwncGYFPxmU",
+        "volume": 75
+      },
+      "finalHeadline": "Make a Wish & Blow Out the Candles! 🎂✨",
+      "finalSubtext": "Here is to another trip around the sun filled with blue skies, warm dorayaki, and pockets full of dreams."
+    },
+    "createdAt": "2026-10-24T13:17:46.445Z",
+    "updatedAt": "2026-10-24T13:29:13.738Z"
+  }
+}

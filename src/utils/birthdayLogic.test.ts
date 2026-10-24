@@ -85,21 +85,47 @@ test('validateBirthdayDetails catches empty required fields and invalid ages', (
   assert.ok(invalidResult.errors.senderName);
 });
 
-test('buildCompactShareUrl and extractShareIdFromSearch keep share links short and Nginx-414-safe', () => {
+test('buildCompactShareUrl and extractShareIdFromSearch keep share links short, public (ais-pre), and Nginx-414-safe', () => {
   const url = buildCompactShareUrl('https://example.com', '/', 'dora7x9k2m');
   assert.equal(url, 'https://example.com/?s=dora7x9k2m');
   assert.ok(url.length < 60, 'Compact share URL must stay well under Nginx 414 limits');
+
+  const publicUrl = buildCompactShareUrl(
+    'https://ais-dev-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app',
+    '/',
+    'dorav4amjv'
+  );
+  assert.equal(
+    publicUrl,
+    'https://ais-pre-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app/?s=dorav4amjv'
+  );
 
   assert.equal(extractShareIdFromSearch('?s=dora7x9k2m'), 'dora7x9k2m');
   assert.equal(extractShareIdFromSearch('?id=dora99abc'), 'dora99abc');
   assert.equal(extractShareIdFromSearch('?mode=studio'), null);
 });
 
-test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve personalized details', () => {
+test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve personalized details and normalize upload paths', () => {
   const custom = applyCharacterPreset('shizuka', DEFAULT_BIRTHDAY_CONFIG);
-  const normalized = normalizeBirthdayConfig(custom);
+  const withApiUpload = {
+    ...custom,
+    memories: [
+      {
+        id: 'm1',
+        imageUrl: '/api/uploads/cropped-photo-c29ee7e5df85.png',
+        caption: 'Svetu Memory',
+        dateLabel: 'Today',
+        story: 'Fun times',
+      },
+    ],
+  };
+  const normalized = normalizeBirthdayConfig(withApiUpload);
   assert.equal(normalized.recipientName, 'Shizuka');
   assert.equal(normalized.appearance.layout, 'anywhere-storybook');
+  assert.equal(
+    normalized.memories[0].imageUrl,
+    '/uploads/cropped-photo-c29ee7e5df85.png'
+  );
 
   const html = generateStandaloneBirthdayHtml(normalized);
   assert.ok(html.includes('Happy Birthday, Shizuka!'));

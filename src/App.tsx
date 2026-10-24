@@ -29,15 +29,27 @@ type AppViewMode = 'landing' | 'studio' | 'experience';
 type MobileStudioPane = 'edit' | 'preview';
 
 export default function App() {
-  const initialSharedId =
+  const [sharedId, setSharedId] = useState<string | null>(() =>
     typeof window !== 'undefined'
       ? extractShareIdFromSearch(window.location.search)
-      : null;
+      : null
+  );
 
   // 1. Initialize BirthdayConfig from localStorage draft or default (shared ?s=<id> loads asynchronously below)
   const [config, setConfig] = useState<BirthdayConfig>(() => {
-    if (typeof window !== 'undefined' && !initialSharedId) {
+    if (typeof window !== 'undefined') {
       try {
+        if (sharedId) {
+          const cachedShare = window.localStorage.getItem(
+            `dorapocket_share_cache_${sharedId}`
+          );
+          if (cachedShare) {
+            const parsedShare = JSON.parse(cachedShare) as Partial<BirthdayConfig>;
+            if (parsedShare && typeof parsedShare.recipientName === 'string') {
+              return normalizeBirthdayConfig(parsedShare);
+            }
+          }
+        }
         const saved = window.localStorage.getItem(STORAGE_DRAFT_KEY);
         if (saved) {
           const parsed = JSON.parse(saved) as Partial<BirthdayConfig>;
@@ -56,7 +68,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<AppViewMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (initialSharedId || params.get('mode') === 'experience') {
+      if (sharedId || params.get('mode') === 'experience') {
         return 'experience';
       }
       if (params.get('autostart') === '1' || params.get('mode') === 'studio') {
@@ -74,61 +86,139 @@ export default function App() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [isMusicPlaying, setIsMusicPlaying] = useState(true);
   const [isLoadingSharedSurprise, setIsLoadingSharedSurprise] = useState<boolean>(
-    Boolean(initialSharedId)
+    Boolean(sharedId)
   );
   const [sharedSurpriseError, setSharedSurpriseError] = useState<string | null>(
     null
   );
 
+  // Sync URL popstate so browser Back/Forward works seamlessly with short share links
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextId = extractShareIdFromSearch(window.location.search);
+      setSharedId(nextId);
+      if (nextId) {
+        setViewMode('experience');
+        setActivePreviewStep('welcome');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Fetch shared birthday configuration when opened via compact short link (?s=<id> or ?id=<id>)
   useEffect(() => {
-    if (!initialSharedId) return;
+    if (!sharedId) return;
     let cancelled = false;
     setIsLoadingSharedSurprise(true);
     setSharedSurpriseError(null);
 
-    fetch(`/api/shares/${encodeURIComponent(initialSharedId)}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const errBody = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(
-            errBody.error ||
-              `Could not find birthday surprise link "${initialSharedId}".`
+    const tryFetchShareJson = async (
+      url: string
+    ): Promise<Partial<BirthdayConfig> | null> => {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) return null;
+        const text = await res.text();
+        if (!text || text.trim().startsWith('<')) return null;
+        const parsed = JSON.parse(text) as {
+          id?: string;
+          config?: Partial<BirthdayConfig>;
+          recipientName?: string;
+        };
+        if (
+          parsed &&
+          parsed.config &&
+          typeof parsed.config.recipientName === 'string'
+        ) {
+          return parsed.config;
+        }
+        if (parsed && typeof parsed.recipientName === 'string') {
+          return parsed as Partial<BirthdayConfig>;
+        }
+      } catch {
+        // Continue to next fallback source
+      }
+      return null;
+    };
+
+    const loadSharedSurprise = async () => {
+      const safeId = encodeURIComponent(sharedId);
+
+      // 1. Try static JSON bundle (/shares/<id>.json) — works on static SPA hosts (ais-pre) and Vite
+      let foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
+
+      // 2. Try Express API endpoint (/api/shares/<id>)
+      if (!foundConfig) {
+        foundConfig = await tryFetchShareJson(`/api/shares/${safeId}`);
+      }
+
+      // 3. Try browser localStorage share cache for this ID
+      if (!foundConfig) {
+        try {
+          const cached = window.localStorage.getItem(
+            `dorapocket_share_cache_${sharedId}`
           );
+          if (cached) {
+            const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
+            if (parsed && typeof parsed.recipientName === 'string') {
+              foundConfig = parsed;
+            }
+          }
+        } catch {
+          // Ignore storage error
         }
-        return res.json() as Promise<{
-          id: string;
-          config: Partial<BirthdayConfig>;
-        }>;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        if (data && data.config) {
-          setConfig(normalizeBirthdayConfig(data.config));
-          setViewMode('experience');
-          setActivePreviewStep('welcome');
+      }
+
+      // 4. Try static /shares/latest.json fallback
+      if (!foundConfig) {
+        foundConfig = await tryFetchShareJson('/shares/latest.json');
+      }
+
+      // 5. Try local draft in localStorage
+      if (!foundConfig) {
+        try {
+          const savedDraft = window.localStorage.getItem(STORAGE_DRAFT_KEY);
+          if (savedDraft) {
+            const parsed = JSON.parse(savedDraft) as Partial<BirthdayConfig>;
+            if (parsed && typeof parsed.recipientName === 'string') {
+              foundConfig = parsed;
+            }
+          }
+        } catch {
+          // Ignore storage error
         }
-      })
-      .catch((err) => {
-        if (cancelled) return;
+      }
+
+      if (cancelled) return;
+
+      if (foundConfig) {
+        const normalized = normalizeBirthdayConfig(foundConfig);
+        setConfig(normalized);
+        setViewMode('experience');
+        setActivePreviewStep('welcome');
+        try {
+          window.localStorage.setItem(
+            `dorapocket_share_cache_${sharedId}`,
+            JSON.stringify(normalized)
+          );
+        } catch {
+          // Ignore storage quota
+        }
+      } else {
         setSharedSurpriseError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to load this shared birthday surprise.'
+          `Could not find birthday surprise link "${sharedId}".`
         );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingSharedSurprise(false);
-        }
-      });
+      }
+      setIsLoadingSharedSurprise(false);
+    };
+
+    loadSharedSurprise();
 
     return () => {
       cancelled = true;
     };
-  }, [initialSharedId]);
+  }, [sharedId]);
 
   const triggerConfetti = useCallback(() => {
     setConfettiActive(true);
@@ -407,6 +497,20 @@ export default function App() {
                   onSaveDraft={() => handleSaveDraft(config)}
                   onResetDefault={handleResetDefault}
                   onOpenFullscreenExperience={() => setViewMode('experience')}
+                  onOpenShareLink={(targetId) => {
+                    try {
+                      window.history.pushState(
+                        {},
+                        '',
+                        `/?s=${encodeURIComponent(targetId)}`
+                      );
+                    } catch {
+                      // Ignore history restriction
+                    }
+                    setSharedId(targetId);
+                    setViewMode('experience');
+                    setActivePreviewStep('welcome');
+                  }}
                   lastSavedAt={lastSavedAt}
                   isMusicPlaying={isMusicPlaying}
                   onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
@@ -456,7 +560,7 @@ export default function App() {
               <div className="text-xs font-semibold text-[#168DCE]">
                 🎂 Viewing {config.recipientName || 'Birthday'}&apos;s Interactive
                 Birthday Experience
-                {initialSharedId ? ` (Shared Surprise #${initialSharedId})` : ''}
+                {sharedId ? ` (Shared Surprise #${sharedId})` : ''}
               </div>
               <div className="flex items-center gap-2.5">
                 <button

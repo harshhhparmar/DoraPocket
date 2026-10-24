@@ -12,12 +12,15 @@ const DATA_DIR = path.resolve(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const SHARES_FILE = path.join(DATA_DIR, 'shares.json');
 
-// Ensure persistent directories exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const PUBLIC_DIR = path.resolve(__dirname, 'public');
+const PUBLIC_UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
+const PUBLIC_SHARES_DIR = path.join(PUBLIC_DIR, 'shares');
+
+// Ensure persistent and public static directories exist
+for (const dir of [DATA_DIR, UPLOADS_DIR, PUBLIC_DIR, PUBLIC_UPLOADS_DIR, PUBLIC_SHARES_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 interface StoredShareRecord {
@@ -40,8 +43,18 @@ function readSharesStore(): Record<string, StoredShareRecord> {
   }
 }
 
-function writeSharesStore(store: Record<string, StoredShareRecord>): void {
+function writeSharesStore(
+  store: Record<string, StoredShareRecord>,
+  latestRecord?: StoredShareRecord
+): void {
   fs.writeFileSync(SHARES_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  if (latestRecord) {
+    const shareFilePath = path.join(PUBLIC_SHARES_DIR, `${latestRecord.id}.json`);
+    const latestFilePath = path.join(PUBLIC_SHARES_DIR, 'latest.json');
+    const serialized = JSON.stringify(latestRecord, null, 2);
+    fs.writeFileSync(shareFilePath, serialized, 'utf-8');
+    fs.writeFileSync(latestFilePath, serialized, 'utf-8');
+  }
 }
 
 function generateUniqueShortId(existingStore: Record<string, StoredShareRecord>): string {
@@ -89,15 +102,14 @@ const EXT_TO_MIME: Record<string, string> = {
 };
 
 /**
- * Saves a base64 data URL (image or audio) to disk in data/uploads/
- * and returns its compact public URL path (/api/uploads/<filename>).
+ * Saves a base64 data URL (image or audio) to both public/uploads/ and data/uploads/
+ * and returns its compact public URL path (/uploads/<filename>).
  */
 function persistDataUrlToUploadFile(dataUrl: string, prefix = 'media'): string | null {
   if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
     return null;
   }
 
-  // Keep lightweight built-in SVG scene illustrations inline or convert uploaded raster/audio files
   const match = dataUrl.match(/^data:([a-zA-Z0-9.+/-]+);base64,(.+)$/);
   if (!match) {
     return null;
@@ -109,18 +121,23 @@ function persistDataUrlToUploadFile(dataUrl: string, prefix = 'media'): string |
   const hash = crypto.createHash('sha1').update(buffer).digest('hex').slice(0, 12);
   const ext = MIME_TO_EXT[mimeType] || 'bin';
   const filename = `${prefix}-${hash}.${ext}`;
-  const filePath = path.join(UPLOADS_DIR, filename);
 
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, buffer);
+  const dataFilePath = path.join(UPLOADS_DIR, filename);
+  const publicFilePath = path.join(PUBLIC_UPLOADS_DIR, filename);
+
+  if (!fs.existsSync(dataFilePath)) {
+    fs.writeFileSync(dataFilePath, buffer);
+  }
+  if (!fs.existsSync(publicFilePath)) {
+    fs.writeFileSync(publicFilePath, buffer);
   }
 
-  return `/api/uploads/${filename}`;
+  return `/uploads/${filename}`;
 }
 
 /**
  * Walks a BirthdayConfig object and converts any base64-encoded uploaded photos or audio
- * into stored files under /api/uploads/:filename so the config remains lightweight and fast.
+ * into stored files under /uploads/:filename so the config remains lightweight and fast.
  */
 function extractAndPersistEmbeddedMedia(
   rawConfig: Record<string, unknown>
@@ -129,17 +146,19 @@ function extractAndPersistEmbeddedMedia(
 
   if (Array.isArray(cloned.memories)) {
     cloned.memories = cloned.memories.map((mem: Record<string, unknown>, idx: number) => {
-      if (
-        mem &&
-        typeof mem.imageUrl === 'string' &&
-        mem.imageUrl.startsWith('data:') &&
-        mem.imageUrl.includes(';base64,')
-      ) {
-        const storedUrl = persistDataUrlToUploadFile(mem.imageUrl, `photo-${idx + 1}`);
-        if (storedUrl) {
+      if (mem && typeof mem.imageUrl === 'string') {
+        if (mem.imageUrl.startsWith('data:') && mem.imageUrl.includes(';base64,')) {
+          const storedUrl = persistDataUrlToUploadFile(mem.imageUrl, `photo-${idx + 1}`);
+          if (storedUrl) {
+            return {
+              ...mem,
+              imageUrl: storedUrl,
+            };
+          }
+        } else if (mem.imageUrl.startsWith('/api/uploads/')) {
           return {
             ...mem,
-            imageUrl: storedUrl,
+            imageUrl: mem.imageUrl.replace('/api/uploads/', '/uploads/'),
           };
         }
       }
@@ -181,7 +200,7 @@ async function startServer() {
   // Support multi-photo and audio uploads in JSON requests up to 30MB
   app.use(express.json({ limit: '30mb' }));
 
-  // 1. Upload a single photo or audio file (returns compact URL /api/uploads/:filename)
+  // 1. Upload a single photo or audio file (returns compact URL /uploads/:filename)
   app.post('/api/uploads', (req, res) => {
     try {
       const { dataUrl, prefix } = req.body || {};
@@ -208,8 +227,8 @@ async function startServer() {
     }
   });
 
-  // 2. Serve stored uploaded photos and audio files
-  app.get('/api/uploads/:filename', (req, res) => {
+  // 2. Serve stored uploaded photos and audio files at both /uploads/:filename and /api/uploads/:filename
+  const serveUploadFile = (req: express.Request, res: express.Response) => {
     const rawFilename = req.params.filename || '';
     const safeFilename = path.basename(rawFilename);
     if (!/^[a-zA-Z0-9._-]+$/.test(safeFilename)) {
@@ -217,8 +236,15 @@ async function startServer() {
       return;
     }
 
-    const filePath = path.join(UPLOADS_DIR, safeFilename);
-    if (!fs.existsSync(filePath)) {
+    const publicFilePath = path.join(PUBLIC_UPLOADS_DIR, safeFilename);
+    const dataFilePath = path.join(UPLOADS_DIR, safeFilename);
+    const resolvedPath = fs.existsSync(publicFilePath)
+      ? publicFilePath
+      : fs.existsSync(dataFilePath)
+        ? dataFilePath
+        : null;
+
+    if (!resolvedPath) {
       res.status(404).json({ error: 'Uploaded file not found.' });
       return;
     }
@@ -227,8 +253,11 @@ async function startServer() {
     const contentType = EXT_TO_MIME[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    fs.createReadStream(filePath).pipe(res);
-  });
+    fs.createReadStream(resolvedPath).pipe(res);
+  };
+
+  app.get('/api/uploads/:filename', serveUploadFile);
+  app.get('/uploads/:filename', serveUploadFile);
 
   // 3. Create or update a shared birthday configuration with a short ID
   app.post('/api/shares', (req, res) => {
@@ -242,10 +271,10 @@ async function startServer() {
       }
 
       const store = readSharesStore();
+      // Honor the client's existing short ID if valid so links never become orphaned
       const validRequestedId =
         typeof requestedId === 'string' &&
-        /^[a-zA-Z0-9_-]{4,24}$/.test(requestedId) &&
-        store[requestedId]
+        /^[a-zA-Z0-9_-]{4,24}$/.test(requestedId)
           ? requestedId
           : null;
 
@@ -263,7 +292,7 @@ async function startServer() {
       };
 
       store[shortId] = record;
-      writeSharesStore(store);
+      writeSharesStore(store, record);
 
       res.status(201).json({
         id: shortId,
@@ -290,7 +319,19 @@ async function startServer() {
       }
 
       const store = readSharesStore();
-      const record = store[rawId];
+      let record: StoredShareRecord | undefined = store[rawId];
+
+      // Also check static public/shares/<id>.json or public/shares/latest.json
+      if (!record) {
+        const publicSharePath = path.join(PUBLIC_SHARES_DIR, `${rawId}.json`);
+        const latestSharePath = path.join(PUBLIC_SHARES_DIR, 'latest.json');
+        if (fs.existsSync(publicSharePath)) {
+          record = JSON.parse(fs.readFileSync(publicSharePath, 'utf-8'));
+        } else if (fs.existsSync(latestSharePath)) {
+          record = JSON.parse(fs.readFileSync(latestSharePath, 'utf-8'));
+        }
+      }
+
       if (!record) {
         res.status(404).json({
           error: `Birthday surprise "${rawId}" was not found. Please check the link or create a new share link.`,
@@ -316,6 +357,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
+    app.use(express.static(PUBLIC_DIR));
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
