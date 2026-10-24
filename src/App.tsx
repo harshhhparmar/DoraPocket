@@ -12,49 +12,37 @@ import {
 import {
   DEFAULT_BIRTHDAY_CONFIG,
   STORAGE_DRAFT_KEY,
+  STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
-  decodeShareConfig,
+  extractShareIdFromSearch,
+  normalizeBirthdayConfig,
 } from './utils/birthdayLogic';
 import { FloatingSkyBackdrop } from './components/DoraemonIllustrations';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { LandingPage } from './components/LandingPage';
 import { CustomizationEditor } from './components/CustomizationEditor';
 import { BirthdayExperience } from './components/BirthdayExperience';
+import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 type AppViewMode = 'landing' | 'studio' | 'experience';
 type MobileStudioPane = 'edit' | 'preview';
 
 export default function App() {
-  // 1. Initialize BirthdayConfig from URL ?gift=... or localStorage draft or default
+  const initialSharedId =
+    typeof window !== 'undefined'
+      ? extractShareIdFromSearch(window.location.search)
+      : null;
+
+  // 1. Initialize BirthdayConfig from localStorage draft or default (shared ?s=<id> loads asynchronously below)
   const [config, setConfig] = useState<BirthdayConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const giftParam = params.get('gift');
-      if (giftParam) {
-        const decoded = decodeShareConfig(giftParam);
-        if (decoded) return decoded;
-      }
+    if (typeof window !== 'undefined' && !initialSharedId) {
       try {
         const saved = window.localStorage.getItem(STORAGE_DRAFT_KEY);
         if (saved) {
           const parsed = JSON.parse(saved) as Partial<BirthdayConfig>;
           if (parsed && typeof parsed.recipientName === 'string') {
-            return {
-              ...DEFAULT_BIRTHDAY_CONFIG,
-              ...parsed,
-              sections: {
-                ...DEFAULT_BIRTHDAY_CONFIG.sections,
-                ...(parsed.sections || {}),
-              },
-              appearance: {
-                ...DEFAULT_BIRTHDAY_CONFIG.appearance,
-                ...(parsed.appearance || {}),
-              },
-              music: {
-                ...DEFAULT_BIRTHDAY_CONFIG.music,
-                ...(parsed.music || {}),
-              },
-            };
+            return normalizeBirthdayConfig(parsed);
           }
         }
       } catch {
@@ -64,11 +52,11 @@ export default function App() {
     return DEFAULT_BIRTHDAY_CONFIG;
   });
 
-  // 2. Initialize ViewMode (?autostart=1 opens studio, ?mode=experience or ?gift= opens experience)
+  // 2. Initialize ViewMode (?s=<id> or ?mode=experience opens fullscreen experience, ?autostart=1 opens studio)
   const [viewMode, setViewMode] = useState<AppViewMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('mode') === 'experience' || params.get('gift')) {
+      if (initialSharedId || params.get('mode') === 'experience') {
         return 'experience';
       }
       if (params.get('autostart') === '1' || params.get('mode') === 'studio') {
@@ -84,7 +72,63 @@ export default function App() {
   const [mobilePane, setMobilePane] = useState<MobileStudioPane>('edit');
   const [confettiActive, setConfettiActive] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(true);
+  const [isLoadingSharedSurprise, setIsLoadingSharedSurprise] = useState<boolean>(
+    Boolean(initialSharedId)
+  );
+  const [sharedSurpriseError, setSharedSurpriseError] = useState<string | null>(
+    null
+  );
+
+  // Fetch shared birthday configuration when opened via compact short link (?s=<id> or ?id=<id>)
+  useEffect(() => {
+    if (!initialSharedId) return;
+    let cancelled = false;
+    setIsLoadingSharedSurprise(true);
+    setSharedSurpriseError(null);
+
+    fetch(`/api/shares/${encodeURIComponent(initialSharedId)}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            errBody.error ||
+              `Could not find birthday surprise link "${initialSharedId}".`
+          );
+        }
+        return res.json() as Promise<{
+          id: string;
+          config: Partial<BirthdayConfig>;
+        }>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data && data.config) {
+          setConfig(normalizeBirthdayConfig(data.config));
+          setViewMode('experience');
+          setActivePreviewStep('welcome');
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSharedSurpriseError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to load this shared birthday surprise.'
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingSharedSurprise(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSharedId]);
 
   const triggerConfetti = useCallback(() => {
     setConfettiActive(true);
@@ -112,20 +156,22 @@ export default function App() {
     [config]
   );
 
-  // Auto-save draft locally when config changes
+  // Auto-save draft locally when config changes in studio mode
   useEffect(() => {
+    if (isLoadingSharedSurprise) return;
     try {
       window.localStorage.setItem(STORAGE_DRAFT_KEY, JSON.stringify(config));
     } catch {
       // Ignore storage quota limit
     }
-  }, [config]);
+  }, [config, isLoadingSharedSurprise]);
 
   const handleResetDefault = () => {
     setConfig(DEFAULT_BIRTHDAY_CONFIG);
     setActivePreviewStep('welcome');
     try {
       window.localStorage.removeItem(STORAGE_DRAFT_KEY);
+      window.localStorage.removeItem(STORAGE_SHARE_ID_KEY);
     } catch {
       // Ignore
     }
@@ -249,23 +295,34 @@ export default function App() {
       <main className="relative z-10 flex-1">
         {/* VIEW 1: LANDING PAGE */}
         {viewMode === 'landing' && (
-          <LandingPage
-            config={config}
-            onStartBuilder={() => {
-              setViewMode('studio');
-              setActiveEditorTab('details');
-            }}
-            onExploreExperience={() => {
-              setViewMode('experience');
-            }}
-            onSelectPresetAndBuild={(preset) => {
-              const updated = applyCharacterPreset(preset, config);
-              setConfig(updated);
-              setViewMode('studio');
-              setActiveEditorTab('details');
-              setActivePreviewStep('milestone');
-            }}
-          />
+          <div className="relative">
+            <div className="max-w-[1380px] mx-auto px-5 sm:px-8 pt-3 flex justify-end">
+              <div className="bg-white/90 backdrop-blur-xs rounded-2xl border border-[#64C8FF]/50 px-3 py-1.5 shadow-xs">
+                <BackgroundMusicPlayer
+                  music={config.music || DEFAULT_BIRTHDAY_CONFIG.music}
+                  isPlaying={isMusicPlaying}
+                  onTogglePlay={() => setIsMusicPlaying((prev) => !prev)}
+                />
+              </div>
+            </div>
+            <LandingPage
+              config={config}
+              onStartBuilder={() => {
+                setViewMode('studio');
+                setActiveEditorTab('details');
+              }}
+              onExploreExperience={() => {
+                setViewMode('experience');
+              }}
+              onSelectPresetAndBuild={(preset) => {
+                const updated = applyCharacterPreset(preset, config);
+                setConfig(updated);
+                setViewMode('studio');
+                setActiveEditorTab('details');
+                setActivePreviewStep('milestone');
+              }}
+            />
+          </div>
         )}
 
         {/* VIEW 2: CUSTOMIZATION STUDIO + LIVE PREVIEW */}
@@ -399,6 +456,7 @@ export default function App() {
               <div className="text-xs font-semibold text-[#168DCE]">
                 🎂 Viewing {config.recipientName || 'Birthday'}&apos;s Interactive
                 Birthday Experience
+                {initialSharedId ? ` (Shared Surprise #${initialSharedId})` : ''}
               </div>
               <div className="flex items-center gap-2.5">
                 <button
@@ -418,16 +476,60 @@ export default function App() {
               </div>
             </div>
 
-            <BirthdayExperience
-              config={config}
-              activeStepId={activePreviewStep}
-              onStepChange={setActivePreviewStep}
-              onTriggerConfetti={triggerConfetti}
-              isFullscreen={true}
-              onToggleFullscreen={() => setViewMode('studio')}
-              isMusicPlaying={isMusicPlaying}
-              onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
-            />
+            {sharedSurpriseError && (
+              <div
+                role="alert"
+                className="bg-white border-2 border-[#F04444]/60 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-[#F04444] shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h2 className="font-display font-bold text-sm text-[#183247]">
+                      Could Not Load Shared Birthday Link
+                    </h2>
+                    <p className="text-xs text-[#183247]/75">
+                      {sharedSurpriseError}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSharedSurpriseError(null);
+                    setViewMode('studio');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  Create a New Birthday Surprise 🎂
+                </button>
+              </div>
+            )}
+
+            {isLoadingSharedSurprise ? (
+              <div
+                role="status"
+                className="bg-white rounded-[32px] border-2 border-[#64C8FF]/70 p-12 text-center space-y-4 shadow-md"
+              >
+                <Loader2 className="w-8 h-8 text-[#168DCE] animate-spin mx-auto" />
+                <h2 className="font-display text-xl font-bold text-[#183247]">
+                  Opening Doraemon&apos;s 4D Pocket Surprise... 🔔✨
+                </h2>
+                <p className="text-xs text-[#183247]/70">
+                  Loading personalized wishes, memories, and birthday surprises...
+                </p>
+              </div>
+            ) : (
+              <BirthdayExperience
+                config={config}
+                activeStepId={activePreviewStep}
+                onStepChange={setActivePreviewStep}
+                onTriggerConfetti={triggerConfetti}
+                isFullscreen={true}
+                onToggleFullscreen={() => setViewMode('studio')}
+                isMusicPlaying={isMusicPlaying}
+                onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
+              />
+            )}
           </section>
         )}
       </main>

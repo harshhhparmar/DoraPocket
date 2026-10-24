@@ -59,7 +59,7 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   const currentStep = steps[currentStepIndex] || steps[0];
 
   const [isDoorOpen, setIsDoorOpen] = useState(false);
-  const [internalMusicPlaying, setInternalMusicPlaying] = useState(false);
+  const [internalMusicPlaying, setInternalMusicPlaying] = useState(true);
   const isMusicPlaying =
     typeof externalMusicPlaying === 'boolean'
       ? externalMusicPlaying

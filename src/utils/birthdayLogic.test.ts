@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_BIRTHDAY_CONFIG,
   applyCharacterPreset,
-  decodeShareConfig,
-  encodeShareConfig,
+  buildCanvasFilterString,
+  buildCompactShareUrl,
+  extractShareIdFromSearch,
   extractYouTubeVideoId,
   formatOrdinalAge,
+  generateStandaloneBirthdayHtml,
   getActiveExperienceSteps,
+  getAspectRatioDimensions,
   moveItemInArray,
+  normalizeBirthdayConfig,
   validateBirthdayDetails,
 } from './birthdayLogic';
 
@@ -81,17 +85,25 @@ test('validateBirthdayDetails catches empty required fields and invalid ages', (
   assert.ok(invalidResult.errors.senderName);
 });
 
-test('encodeShareConfig and decodeShareConfig round-trip custom birthday configurations', () => {
-  const custom = applyCharacterPreset('shizuka', DEFAULT_BIRTHDAY_CONFIG);
-  const encoded = encodeShareConfig(custom);
-  assert.ok(encoded.length > 20);
+test('buildCompactShareUrl and extractShareIdFromSearch keep share links short and Nginx-414-safe', () => {
+  const url = buildCompactShareUrl('https://example.com', '/', 'dora7x9k2m');
+  assert.equal(url, 'https://example.com/?s=dora7x9k2m');
+  assert.ok(url.length < 60, 'Compact share URL must stay well under Nginx 414 limits');
 
-  const decoded = decodeShareConfig(encoded);
-  assert.ok(decoded);
-  assert.equal(decoded?.recipientName, 'Shizuka');
-  assert.equal(decoded?.headline, 'Happy Birthday, Shizuka! 🎂✨');
-  assert.equal(decoded?.appearance.layout, 'anywhere-storybook');
-  assert.equal(decoded?.music.youtubeVideoId, 'iwncGYFPxmU');
+  assert.equal(extractShareIdFromSearch('?s=dora7x9k2m'), 'dora7x9k2m');
+  assert.equal(extractShareIdFromSearch('?id=dora99abc'), 'dora99abc');
+  assert.equal(extractShareIdFromSearch('?mode=studio'), null);
+});
+
+test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve personalized details', () => {
+  const custom = applyCharacterPreset('shizuka', DEFAULT_BIRTHDAY_CONFIG);
+  const normalized = normalizeBirthdayConfig(custom);
+  assert.equal(normalized.recipientName, 'Shizuka');
+  assert.equal(normalized.appearance.layout, 'anywhere-storybook');
+
+  const html = generateStandaloneBirthdayHtml(normalized);
+  assert.ok(html.includes('Happy Birthday, Shizuka!'));
+  assert.ok(html.includes('Dear Shizuka,'));
 });
 
 test('extractYouTubeVideoId parses watch, short, embed, and bare Doraemon video IDs', () => {
@@ -109,5 +121,14 @@ test('extractYouTubeVideoId parses watch, short, embed, and bare Doraemon video 
   );
   assert.equal(extractYouTubeVideoId('iwncGYFPxmU'), 'iwncGYFPxmU');
   assert.equal(extractYouTubeVideoId('https://example.com/not-youtube'), null);
+});
+
+test('getAspectRatioDimensions and buildCanvasFilterString compute accurate crop canvas specs', () => {
+  assert.deepEqual(getAspectRatioDimensions('16:9'), { width: 800, height: 450 });
+  assert.deepEqual(getAspectRatioDimensions('1:1'), { width: 720, height: 720 });
+  assert.equal(
+    buildCanvasFilterString({ brightness: 110, contrast: 105, saturation: 120, warmth: 15 }),
+    'brightness(110%) contrast(105%) saturate(120%) sepia(15%)'
+  );
 });
 

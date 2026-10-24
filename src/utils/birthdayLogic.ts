@@ -503,84 +503,276 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
   };
 }
 
-/**
- * Encodes a shareable lightweight copy of BirthdayConfig into a URL-safe base64 string.
- * Strips large custom base64 photo/audio uploads over 4KB so URLs stay compact.
- */
-export function encodeShareConfig(config: BirthdayConfig): string {
-  try {
-    const hasOversizedAudio =
-      config.music?.customAudioDataUrl &&
-      config.music.customAudioDataUrl.length > 4000;
+export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v1';
 
-    const compactConfig: BirthdayConfig = {
-      ...config,
-      memories: config.memories.map((m) => ({
-        ...m,
-        imageUrl:
-          m.imageUrl.length > 4000 && m.scenePreset
-            ? createMemorySceneDataUri(m.scenePreset)
-            : m.imageUrl.length > 4000
-            ? createMemorySceneDataUri('sunset-hill')
-            : m.imageUrl,
-      })),
-      music: {
-        ...(config.music || DEFAULT_BIRTHDAY_CONFIG.music),
-        source: hasOversizedAudio
-          ? 'youtube'
-          : config.music?.source || 'youtube',
-        customAudioDataUrl: hasOversizedAudio
-          ? undefined
-          : config.music?.customAudioDataUrl,
-      },
-    };
-    const json = JSON.stringify(compactConfig);
-    const bytes = new TextEncoder().encode(json);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  } catch {
-    return '';
+/**
+ * Builds a compact, Nginx-safe short-ID share URL (e.g., https://example.com/?s=dora7x9k).
+ * Never embeds configuration JSON, wishes, or base64 photo data in URL query parameters.
+ */
+export function buildCompactShareUrl(
+  origin: string,
+  pathname: string,
+  shortId: string
+): string {
+  const cleanOrigin = (origin || '').replace(/\/+$/, '');
+  const cleanPath = pathname && pathname.startsWith('/') ? pathname : '/';
+  const safeId = (shortId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safeId) {
+    return `${cleanOrigin}${cleanPath}`;
   }
+  return `${cleanOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
 }
 
 /**
- * Decodes a base64 share string back into a validated BirthdayConfig.
+ * Extracts a short share ID (?s=... or ?id=...) from a URL search string.
  */
-export function decodeShareConfig(encoded: string): BirthdayConfig | null {
-  if (!encoded || typeof encoded !== 'string') return null;
-  try {
-    const binary = atob(encoded);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json) as Partial<BirthdayConfig>;
-    if (!parsed || typeof parsed.recipientName !== 'string') {
-      return null;
-    }
-    return {
-      ...DEFAULT_BIRTHDAY_CONFIG,
-      ...parsed,
-      sections: {
-        ...DEFAULT_BIRTHDAY_CONFIG.sections,
-        ...(parsed.sections || {}),
-      },
-      appearance: {
-        ...DEFAULT_BIRTHDAY_CONFIG.appearance,
-        ...(parsed.appearance || {}),
-      },
-      music: {
-        ...DEFAULT_BIRTHDAY_CONFIG.music,
-        ...(parsed.music || {}),
-      },
-    };
-  } catch {
-    return null;
+export function extractShareIdFromSearch(search: string): string | null {
+  if (!search || typeof search !== 'string') return null;
+  const params = new URLSearchParams(search);
+  const raw = (params.get('s') || params.get('id') || '').trim();
+  if (/^[a-zA-Z0-9_-]{3,32}$/.test(raw)) {
+    return raw;
   }
+  return null;
+}
+
+/**
+ * Normalizes a partial or retrieved BirthdayConfig with safe defaults for all nested fields.
+ */
+export function normalizeBirthdayConfig(
+  parsed: Partial<BirthdayConfig> | null | undefined
+): BirthdayConfig {
+  if (!parsed || typeof parsed !== 'object') {
+    return DEFAULT_BIRTHDAY_CONFIG;
+  }
+  return {
+    ...DEFAULT_BIRTHDAY_CONFIG,
+    ...parsed,
+    memories: Array.isArray(parsed.memories)
+      ? parsed.memories
+      : DEFAULT_BIRTHDAY_CONFIG.memories,
+    wishes: Array.isArray(parsed.wishes)
+      ? parsed.wishes
+      : DEFAULT_BIRTHDAY_CONFIG.wishes,
+    funnyMoments: Array.isArray(parsed.funnyMoments)
+      ? parsed.funnyMoments
+      : DEFAULT_BIRTHDAY_CONFIG.funnyMoments,
+    gadgetSurprises: Array.isArray(parsed.gadgetSurprises)
+      ? parsed.gadgetSurprises
+      : DEFAULT_BIRTHDAY_CONFIG.gadgetSurprises,
+    sections: {
+      ...DEFAULT_BIRTHDAY_CONFIG.sections,
+      ...(parsed.sections || {}),
+    },
+    appearance: {
+      ...DEFAULT_BIRTHDAY_CONFIG.appearance,
+      ...(parsed.appearance || {}),
+    },
+    music: {
+      ...DEFAULT_BIRTHDAY_CONFIG.music,
+      ...(parsed.music || {}),
+    },
+  };
+}
+
+function escapeHtml(str: string): string {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Generates a complete, self-contained HTML file containing the personalized
+ * Doraemon-inspired birthday experience so it can also be shared offline as a standalone file.
+ */
+export function generateStandaloneBirthdayHtml(config: BirthdayConfig): string {
+  const safeName = escapeHtml(config.recipientName || 'Friend');
+  const safeHeadline = escapeHtml(
+    config.headline || `Happy Birthday, ${config.recipientName}! 🎂`
+  );
+  const safeSender = escapeHtml(config.senderName || 'Your Friends');
+  const safeRel = escapeHtml(config.relationship || 'Special Friend');
+  const safeMessage = escapeHtml(config.personalMessage);
+  const safeLetterGreeting = escapeHtml(config.letterGreeting);
+  const safeLetterBody = escapeHtml(config.letterBody);
+  const safeLetterSignOff = escapeHtml(config.letterSignOff);
+  const safeFinalHeadline = escapeHtml(config.finalHeadline);
+  const safeFinalSubtext = escapeHtml(config.finalSubtext);
+  const ordinalAge = escapeHtml(formatOrdinalAge(config.age));
+
+  const memoriesHtml = config.memories
+    .map(
+      (m) => `
+      <div class="card memory-card">
+        <img src="${escapeHtml(m.imageUrl)}" alt="${escapeHtml(m.caption)}" class="memory-img" />
+        <div class="memory-body">
+          <span class="tag">${escapeHtml(m.dateLabel)}</span>
+          <h4>${escapeHtml(m.caption)}</h4>
+          <p>${escapeHtml(m.story)}</p>
+        </div>
+      </div>`
+    )
+    .join('\n');
+
+  const gadgetsHtml = config.gadgetSurprises
+    .map(
+      (g) => `
+      <div class="card gadget-card">
+        <span class="tag">🔓 ${escapeHtml(g.gadgetName)}</span>
+        <h4>${escapeHtml(g.surpriseTitle)}</h4>
+        <p>${escapeHtml(g.surpriseMessage)}</p>
+        <p class="hint">✨ ${escapeHtml(g.unlockedHint)}</p>
+      </div>`
+    )
+    .join('\n');
+
+  const wishesHtml = config.wishes
+    .map(
+      (w) => `
+      <div class="card wish-card">
+        <div class="wish-header">
+          <strong>${escapeHtml(w.senderName)}</strong>
+          <span class="tag">${escapeHtml(w.roleLabel)}</span>
+        </div>
+        <p>“${escapeHtml(w.message)}”</p>
+      </div>`
+    )
+    .join('\n');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${safeHeadline} — DoraPocket Birthday Surprise</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(180deg, #EAF7FF 0%, #FFFFFF 100%);
+      color: #183247;
+      line-height: 1.6;
+      padding: 24px 16px 64px;
+    }
+    .container {
+      max-width: 920px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border: 3px solid #64C8FF;
+      border-radius: 28px;
+      box-shadow: 0 18px 48px rgba(22, 141, 206, 0.14);
+      overflow: hidden;
+    }
+    .hero {
+      background: linear-gradient(135deg, #168DCE 0%, #64C8FF 100%);
+      color: #FFFFFF;
+      padding: 40px 28px;
+      text-align: center;
+      border-bottom: 4px solid #F04444;
+      position: relative;
+    }
+    .bell-badge {
+      display: inline-block;
+      background: #FFD84D;
+      color: #183247;
+      font-weight: 800;
+      padding: 6px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      margin-bottom: 14px;
+      border: 2px solid #183247;
+    }
+    h1 { font-size: 32px; margin-bottom: 8px; }
+    .subtitle { font-size: 15px; opacity: 0.95; }
+    .section { padding: 32px 28px; border-bottom: 1px solid #EAF7FF; }
+    .section h2 { font-size: 22px; color: #168DCE; margin-bottom: 16px; }
+    .lead-box {
+      background: #EAF7FF;
+      border: 2px solid #64C8FF;
+      border-radius: 20px;
+      padding: 22px;
+      font-size: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 18px;
+    }
+    .card {
+      background: #EAF7FF;
+      border: 1.5px solid #64C8FF;
+      border-radius: 20px;
+      overflow: hidden;
+      padding: 18px;
+    }
+    .memory-card { padding: 0; }
+    .memory-img { width: 100%; height: 200px; object-fit: cover; display: block; }
+    .memory-body { padding: 16px; }
+    .tag {
+      display: inline-block;
+      background: #FFFFFF;
+      color: #168DCE;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+    }
+    h4 { font-size: 16px; margin-bottom: 6px; color: #183247; }
+    .hint { margin-top: 8px; font-size: 12px; font-weight: 700; color: #168DCE; }
+    .letter {
+      background: #FFFDF5;
+      border: 2px dashed #FFD84D;
+      border-radius: 20px;
+      padding: 24px;
+      white-space: pre-line;
+    }
+    .finale {
+      text-align: center;
+      padding: 40px 28px;
+      background: #EAF7FF;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <div class="bell-badge">🔔 Celebrating ${safeName}'s ${ordinalAge} Birthday</div>
+      <h1>${safeHeadline}</h1>
+      <p class="subtitle">From ${safeSender} · ${safeRel}</p>
+    </header>
+    <section class="section">
+      <h2>💙 Personal Birthday Note</h2>
+      <div class="lead-box">${safeMessage}</div>
+    </section>
+    <section class="section">
+      <h2>📸 Favorite Memories &amp; Snapshots</h2>
+      <div class="grid">${memoriesHtml}</div>
+    </section>
+    <section class="section">
+      <h2>🎁 4D Pocket Gadget Surprises</h2>
+      <div class="grid">${gadgetsHtml}</div>
+    </section>
+    <section class="section">
+      <h2>💌 Heartfelt Birthday Letter</h2>
+      <div class="letter">
+        <strong>${safeLetterGreeting}</strong>\n\n${safeLetterBody}\n\n<em>${safeLetterSignOff}</em>
+      </div>
+    </section>
+    <section class="section">
+      <h2>🌟 Birthday Wishes from Friends</h2>
+      <div class="grid">${wishesHtml}</div>
+    </section>
+    <footer class="finale">
+      <h2>${safeFinalHeadline}</h2>
+      <p>${safeFinalSubtext}</p>
+    </footer>
+  </div>
+</body>
+</html>`;
 }
 
 /**
@@ -663,3 +855,45 @@ export function applyCharacterPreset(
       };
   }
 }
+
+export type PhotoAspectRatio = '16:9' | '4:3' | '1:1' | '3:4';
+
+/**
+ * Returns target canvas output dimensions (width, height) for a selected crop aspect ratio.
+ */
+export function getAspectRatioDimensions(ratio: PhotoAspectRatio): {
+  width: number;
+  height: number;
+} {
+  switch (ratio) {
+    case '4:3':
+      return { width: 800, height: 600 };
+    case '1:1':
+      return { width: 720, height: 720 };
+    case '3:4':
+      return { width: 600, height: 800 };
+    case '16:9':
+    default:
+      return { width: 800, height: 450 };
+  }
+}
+
+/**
+ * Builds a CSS/Canvas filter string from brightness, contrast, saturation, and warmth values.
+ */
+export function buildCanvasFilterString(settings: {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  warmth?: number;
+}): string {
+  const b = Math.max(40, Math.min(200, Math.round(settings.brightness || 100)));
+  const c = Math.max(40, Math.min(200, Math.round(settings.contrast || 100)));
+  const s = Math.max(0, Math.min(250, Math.round(settings.saturation ?? 100)));
+  const sepia =
+    settings.warmth && settings.warmth > 0
+      ? Math.min(40, Math.round(settings.warmth))
+      : 0;
+  return `brightness(${b}%) contrast(${c}%) saturate(${s}%) sepia(${sepia}%)`;
+}
+

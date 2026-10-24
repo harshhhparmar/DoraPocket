@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   AccentTheme,
   BirthdayConfig,
@@ -13,11 +13,14 @@ import {
 import {
   DEFAULT_BIRTHDAY_CONFIG,
   DEFAULT_MEMORIES,
+  STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
+  buildCompactShareUrl,
   createMemorySceneDataUri,
-  encodeShareConfig,
   extractYouTubeVideoId,
+  generateStandaloneBirthdayHtml,
   moveItemInArray,
+  normalizeBirthdayConfig,
   validateBirthdayDetails,
 } from '../utils/birthdayLogic';
 import {
@@ -47,7 +50,13 @@ import {
   Play,
   Pause,
   Volume2,
+  Loader2,
+  FileCode,
+  AlertCircle,
+  RefreshCw,
+  Crop,
 } from 'lucide-react';
+import { PhotoCropEditorModal } from './PhotoCropEditorModal';
 
 interface CustomizationEditorProps {
   config: BirthdayConfig;
@@ -85,6 +94,25 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [customImageUrl, setCustomImageUrl] = useState('');
   const [customImageCaption, setCustomImageCaption] = useState('');
 
+  // Short-ID Share Link & Upload state
+  const [shareId, setShareId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+  const [isPublishingShare, setIsPublishingShare] = useState(false);
+  const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
+  const [shareErrorMsg, setShareErrorMsg] = useState<string | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [editingCropMemory, setEditingCropMemory] = useState<PhotoMemory | null>(
+    null
+  );
+
   // New Wish state
   const [newWishSender, setNewWishSender] = useState('');
   const [newWishRole, setNewWishRole] = useState('');
@@ -103,7 +131,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     setStatusMessage(msg);
     setTimeout(() => {
       setStatusMessage((prev) => (prev === msg ? null : prev));
-    }, 3200);
+    }, 3400);
   };
 
   const updateField = <K extends keyof BirthdayConfig>(
@@ -118,24 +146,56 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
 
   const currentMusic = config.music || DEFAULT_BIRTHDAY_CONFIG.music;
 
+  /**
+   * Uploads a base64 dataUrl to POST /api/uploads and returns the compact server URL (/api/uploads/...).
+   */
+  const uploadDataUrlToServer = async (
+    dataUrl: string,
+    prefix: string
+  ): Promise<string> => {
+    try {
+      const response = await fetch('/api/uploads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl, prefix }),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { url?: string };
+        if (data && typeof data.url === 'string') {
+          return data.url;
+        }
+      }
+    } catch {
+      // Fallback to dataUrl if offline
+    }
+    return dataUrl;
+  };
+
   const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setIsUploadingMedia(true);
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       if (typeof reader.result === 'string') {
         const cleanTitle =
           file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') ||
           'Custom Birthday Track';
+        const storedAudioUrl = await uploadDataUrlToServer(
+          reader.result,
+          'audio'
+        );
         updateField('music', {
           ...currentMusic,
           source: 'custom-upload',
           trackTitle: cleanTitle,
-          customAudioDataUrl: reader.result,
+          customAudioDataUrl: storedAudioUrl,
         });
         showToast(`Uploaded audio track "${cleanTitle}" 🎵`);
       }
+      setIsUploadingMedia(false);
     };
+    reader.onerror = () => setIsUploadingMedia(false);
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -382,33 +442,67 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     );
   };
 
-  // Handle Multi-Photo File Upload
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Multi-Photo File Upload (Stores uploaded photos on server and saves their compact URLs)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          const newMemory: PhotoMemory = {
-            id: `upload-${Date.now()}-${index}`,
-            imageUrl: reader.result,
-            caption: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') || 'Birthday Snapshot',
-            dateLabel: 'Uploaded Memory · Special Day',
-            story: 'A favorite snapshot added to our birthday time capsule.',
-          };
-          onChange({
-            ...config,
-            memories: [...config.memories, newMemory],
-          });
-          onJumpToPreviewStep('memories');
-          showToast(`Added "${newMemory.caption}" to Photo Gallery 📸`);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    const selectedFiles = Array.from(files);
     e.target.value = '';
+    setIsUploadingMedia(true);
+
+    try {
+      const uploadedMemories = await Promise.all(
+        selectedFiles.map(
+          (file, index) =>
+            new Promise<PhotoMemory | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = async () => {
+                if (typeof reader.result === 'string') {
+                  const storedImageUrl = await uploadDataUrlToServer(
+                    reader.result,
+                    'photo'
+                  );
+                  resolve({
+                    id: `upload-${Date.now()}-${index}`,
+                    imageUrl: storedImageUrl,
+                    caption:
+                      file.name
+                        .replace(/\.[^/.]+$/, '')
+                        .replace(/[-_]/g, ' ') || 'Birthday Snapshot',
+                    dateLabel: 'Uploaded Memory · Special Day',
+                    story:
+                      'A favorite snapshot added to our birthday time capsule.',
+                  });
+                } else {
+                  resolve(null);
+                }
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            })
+        )
+      );
+
+      const validNewMemories = uploadedMemories.filter(
+        (m): m is PhotoMemory => m !== null
+      );
+
+      if (validNewMemories.length > 0) {
+        onChange({
+          ...config,
+          memories: [...config.memories, ...validNewMemories],
+        });
+        onJumpToPreviewStep('memories');
+        showToast(
+          validNewMemories.length === 1
+            ? `Uploaded "${validNewMemories[0].caption}" to Photo Gallery 📸`
+            : `Uploaded ${validNewMemories.length} photos to Photo Gallery 📸`
+        );
+      }
+    } finally {
+      setIsUploadingMedia(false);
+    }
   };
 
   const handleAddSceneMemory = (
@@ -478,6 +572,36 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     onJumpToPreviewStep('memories');
   };
 
+  const handleSaveCroppedPhoto = async (
+    memoryId: string,
+    croppedDataUrl: string,
+    updatedCaption: string
+  ) => {
+    setIsUploadingMedia(true);
+    try {
+      const storedUrl = await uploadDataUrlToServer(
+        croppedDataUrl,
+        'cropped-photo'
+      );
+      updateField(
+        'memories',
+        config.memories.map((m) =>
+          m.id === memoryId
+            ? {
+                ...m,
+                imageUrl: storedUrl,
+                caption: updatedCaption || m.caption,
+              }
+            : m
+        )
+      );
+      onJumpToPreviewStep('memories');
+      showToast('Applied crop & visual enhancements to photo! ✨📸');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
   const handleAddWish = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWishSender.trim() || !newWishMessage.trim()) return;
@@ -520,19 +644,125 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     showToast('Added funny moment card 😄');
   };
 
-  const handleCopyShareLink = async () => {
-    const encoded = encodeShareConfig(config);
-    const shareUrl = `${window.location.origin}${window.location.pathname}?mode=experience&gift=${encodeURIComponent(
-      encoded
-    )}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopiedLink(true);
-      showToast('Shareable birthday link copied to clipboard! 🔗');
-      setTimeout(() => setCopiedLink(false), 3000);
-    } catch {
-      showToast('Share link generated below—copy it to send!');
+  /**
+   * Publishes or updates the birthday configuration on the backend (/api/shares),
+   * storing uploaded photos as URLs and returning a compact short-ID share link (?s=<shortId>).
+   */
+  const publishShareConfiguration = useCallback(
+    async (copyToClipboard: boolean): Promise<string | null> => {
+      setIsPublishingShare(true);
+      setShareErrorMsg(null);
+      if (copyToClipboard) {
+        setShareSuccessMsg(null);
+      }
+
+      try {
+        const response = await fetch('/api/shares', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: shareId || undefined,
+            config,
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            errBody.error || 'Could not save share link on the server.'
+          );
+        }
+
+        const data = (await response.json()) as {
+          id: string;
+          sharePath: string;
+          config?: BirthdayConfig;
+        };
+
+        setShareId(data.id);
+        try {
+          window.localStorage.setItem(STORAGE_SHARE_ID_KEY, data.id);
+        } catch {
+          // Ignore storage error
+        }
+
+        if (data.config) {
+          onChange(normalizeBirthdayConfig(data.config));
+        }
+
+        const compactUrl = buildCompactShareUrl(
+          window.location.origin,
+          window.location.pathname,
+          data.id
+        );
+
+        if (copyToClipboard) {
+          try {
+            await navigator.clipboard.writeText(compactUrl);
+            setCopiedLink(true);
+            setTimeout(() => setCopiedLink(false), 3200);
+            setShareSuccessMsg(
+              `Compact share link (${compactUrl}) saved & copied to clipboard! 🎉`
+            );
+            showToast('Compact share link saved & copied to clipboard! 🔗');
+          } catch {
+            setShareSuccessMsg(
+              `Compact share link ready (${compactUrl}) — copy it above to share! 🎉`
+            );
+            showToast('Compact share link generated! 🔗');
+          }
+        } else {
+          setShareSuccessMsg(
+            `Synced live share link (?s=${data.id}) with all photos & wishes ✨`
+          );
+        }
+
+        return compactUrl;
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Unable to publish share link right now. You can also download the Self-Contained HTML Surprise below.';
+        setShareErrorMsg(msg);
+        if (copyToClipboard) {
+          showToast('Could not reach share server — use Self-Contained HTML export below.');
+        }
+        return null;
+      } finally {
+        setIsPublishingShare(false);
+      }
+    },
+    [config, onChange, shareId]
+  );
+
+  // Automatically publish/sync the short share link when the user opens the Share tab
+  useEffect(() => {
+    if (activeTab === 'share') {
+      publishShareConfiguration(false);
     }
+  }, [activeTab]);
+
+  const handleCopyShareLink = async () => {
+    await publishShareConfiguration(true);
+  };
+
+  const handleExportStandaloneHtml = () => {
+    const htmlContent = generateStandaloneBirthdayHtml(config);
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const slug = (config.recipientName || 'birthday')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-');
+    a.href = url;
+    a.download = `dorapocket-${slug}-birthday-surprise.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded self-contained HTML birthday website! 🎂');
   };
 
   const handleExportJson = () => {
@@ -559,7 +789,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       try {
         const parsed = JSON.parse(String(reader.result)) as BirthdayConfig;
         if (parsed && typeof parsed.recipientName === 'string') {
-          onChange(parsed);
+          onChange(normalizeBirthdayConfig(parsed));
           showToast(`Imported birthday configuration for ${parsed.recipientName}! 🎉`);
         }
       } catch {
@@ -607,11 +837,15 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   ];
 
   const shareUrlPreview =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}${window.location.pathname}?mode=experience&gift=${encodeURIComponent(
-          encodeShareConfig(config)
-        )}`
-      : '';
+    typeof window !== 'undefined' && shareId
+      ? buildCompactShareUrl(
+          window.location.origin,
+          window.location.pathname,
+          shareId
+        )
+      : typeof window !== 'undefined'
+        ? `${window.location.origin}${window.location.pathname}?s=...`
+        : '';
 
   return (
     <div className="bg-white rounded-[28px] border-2 border-[#64C8FF]/60 shadow-[0_14px_40px_rgba(22,141,206,0.09)] overflow-hidden flex flex-col">
@@ -910,11 +1144,21 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 />
                 <button
                   type="button"
+                  disabled={isUploadingMedia}
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] disabled:opacity-60 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  <Upload className="w-3.5 h-3.5" />
-                  Upload Photos
+                  {isUploadingMedia ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Uploading Photos...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      Upload Photos
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -996,15 +1240,26 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     key={memory.id}
                     className="p-4 rounded-2xl bg-[#EAF7FF]/45 border border-[#64C8FF]/50 flex flex-col sm:flex-row gap-4 items-start"
                   >
-                    <img
-                      src={memory.imageUrl}
-                      alt={memory.caption}
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        e.currentTarget.src = createMemorySceneDataUri('sunset-hill');
-                      }}
-                      className="w-full sm:w-28 h-24 object-cover rounded-xl border border-[#64C8FF]/40 shrink-0 bg-white"
-                    />
+                    <div className="w-full sm:w-28 shrink-0 space-y-1.5">
+                      <img
+                        src={memory.imageUrl}
+                        alt={memory.caption}
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src = createMemorySceneDataUri('sunset-hill');
+                        }}
+                        className="w-full h-24 object-cover rounded-xl border border-[#64C8FF]/40 bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditingCropMemory(memory)}
+                        aria-label={`Edit or crop ${memory.caption}`}
+                        className="w-full py-1.5 px-2 rounded-lg bg-[#168DCE] hover:bg-[#1276AD] text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Crop className="w-3 h-3" />
+                        <span>Edit / Crop</span>
+                      </button>
+                    </div>
 
                     <div className="flex-1 w-full space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1073,6 +1328,15 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   </div>
                 ))}
               </div>
+            )}
+
+            {/* Photo Crop & Visual Enhancement Modal */}
+            {editingCropMemory && (
+              <PhotoCropEditorModal
+                memory={editingCropMemory}
+                onClose={() => setEditingCropMemory(null)}
+                onSave={handleSaveCroppedPhoto}
+              />
             )}
           </div>
         )}
@@ -1688,41 +1952,67 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 Save Draft &amp; Share Birthday Surprise 🎉
               </h2>
               <p className="text-xs text-[#183247]/70">
-                Save your work locally in your browser or copy a self-contained
-                shareable birthday link for {config.recipientName || 'your friend'}.
+                Save your work locally, generate a compact short-ID share link
+                for {config.recipientName || 'your friend'}, or export a
+                self-contained HTML file.
               </p>
             </div>
 
-            {/* 1. Shareable Birthday Website Link */}
+            {/* 1. Compact Short-ID Shareable Birthday Website Link */}
             <div className="p-5 rounded-2xl bg-[#EAF7FF] border border-[#64C8FF] space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#168DCE]">
-                  Shareable Birthday Experience Link (Opens in Fullscreen Mode)
+                  Compact Shareable Link (Short ID · Opens Fullscreen Experience)
                 </span>
-                <button
-                  type="button"
-                  onClick={onOpenFullscreenExperience}
-                  className="text-xs font-semibold text-[#168DCE] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Launch Fullscreen Now
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => publishShareConfiguration(false)}
+                    disabled={isPublishingShare}
+                    className="text-xs font-semibold text-[#183247]/75 hover:text-[#168DCE] flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isPublishingShare ? 'animate-spin text-[#168DCE]' : ''
+                      }`}
+                    />
+                    Sync Latest Changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenFullscreenExperience}
+                    className="text-xs font-semibold text-[#168DCE] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Launch Fullscreen Now
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
                   readOnly
-                  value={shareUrlPreview}
+                  value={
+                    isPublishingShare && !shareId
+                      ? 'Generating compact short link...'
+                      : shareUrlPreview
+                  }
                   aria-label="Shareable Birthday Website URL"
-                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-white border border-[#64C8FF] text-xs text-[#183247]/80 font-mono-num select-all"
+                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-white border border-[#64C8FF] text-xs text-[#183247] font-mono-num select-all"
                 />
                 <button
                   type="button"
                   onClick={handleCopyShareLink}
-                  className="px-5 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-semibold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  disabled={isPublishingShare}
+                  className="px-5 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] disabled:opacity-60 text-white font-semibold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  {copiedLink ? (
+                  {isPublishingShare ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving &amp; Copying...
+                    </>
+                  ) : copiedLink ? (
                     <>
                       <Check className="w-4 h-4" />
                       Copied Link!
@@ -1735,14 +2025,83 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   )}
                 </button>
               </div>
+
+              {/* Loading, Success, and Error Feedback */}
+              {isPublishingShare && (
+                <div
+                  role="status"
+                  className="flex items-center gap-2 text-xs font-semibold text-[#168DCE] bg-white/80 px-3 py-2 rounded-xl border border-[#64C8FF]/50"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>
+                    Storing photos &amp; birthday configuration under short ID...
+                  </span>
+                </div>
+              )}
+
+              {!isPublishingShare && shareSuccessMsg && !shareErrorMsg && (
+                <div
+                  role="status"
+                  className="flex items-center justify-between gap-2 text-xs font-semibold text-[#183247] bg-white px-3.5 py-2 rounded-xl border border-[#64C8FF]"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-[#168DCE] shrink-0" />
+                    <span>{shareSuccessMsg}</span>
+                  </span>
+                  {shareId && (
+                    <a
+                      href={`/?s=${encodeURIComponent(shareId)}`}
+                      className="text-[#168DCE] hover:underline whitespace-nowrap shrink-0"
+                    >
+                      Open Short Link →
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {shareErrorMsg && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 text-xs font-semibold text-[#F04444] bg-[#F04444]/10 px-3.5 py-2 rounded-xl border border-[#F04444]/30"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{shareErrorMsg}</span>
+                </div>
+              )}
+
               <p className="text-[11px] text-[#183247]/70">
-                Note: This link embeds your custom text, wishes, and layout directly
-                in the URL so anyone opening it sees the personalized birthday
-                experience immediately.
+                Your custom text, wishes, uploaded photos, and layout are stored
+                on the server under a short ID (
+                <code className="font-semibold text-[#168DCE]">
+                  ?s={shareId || 'dora...'}
+                </code>
+                ) so the link stays compact and never triggers URL length errors.
               </p>
             </div>
 
-            {/* 2. Local Draft Persistence vs JSON Backup */}
+            {/* 2. Self-Contained HTML Surprise Export */}
+            <div className="p-4 rounded-2xl bg-white border border-[#64C8FF]/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <h3 className="font-display font-bold text-sm text-[#183247] flex items-center gap-1.5">
+                  <FileCode className="w-4 h-4 text-[#168DCE]" />
+                  <span>Self-Contained HTML Birthday File (.html)</span>
+                </h3>
+                <p className="text-xs text-[#183247]/70">
+                  Download a standalone HTML file with all wishes, photos, and
+                  4D Pocket surprises that opens in any browser offline.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportStandaloneHtml}
+                className="px-4 py-2.5 rounded-xl bg-[#FFD84D] hover:bg-[#F5CA2E] text-[#183247] text-xs font-display font-bold flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download HTML Surprise 🎂
+              </button>
+            </div>
+
+            {/* 3. Local Draft Persistence vs JSON Backup */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-2xl bg-white border border-[#64C8FF]/50 space-y-3">
                 <div className="space-y-1">

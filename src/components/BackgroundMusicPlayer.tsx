@@ -139,8 +139,19 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
     playStep();
     const intervalId = window.setInterval(playStep, preset.tempoMs);
 
+    // Unlock suspended AudioContext automatically on first user gesture if browser blocked initial autoplay
+    const unlockAudio = () => {
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+
     return () => {
       window.clearInterval(intervalId);
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
       if (ctx && ctx.state !== 'closed') {
         ctx.close().catch(() => {});
       }
@@ -180,15 +191,19 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
 
   return (
     <div className="relative flex items-center gap-1.5">
-      {/* Corner Play / Pause Music Toggle Button */}
+      {/* Corner Play / Pause (On / Off) Music Toggle Button */}
       <button
         type="button"
         onClick={onTogglePlay}
         aria-label={
-          isPlaying ? 'Pause background music' : 'Play background music'
+          isPlaying ? 'Turn off background music' : 'Turn on background music'
         }
         aria-pressed={isPlaying}
-        title={music.trackTitle || 'Doraemon Cartoon Theme'}
+        title={
+          isPlaying
+            ? `Music is Playing (${music.trackTitle}) — Click to Turn Off`
+            : `Music is Off (${music.trackTitle}) — Click to Play`
+        }
         className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer border ${
           isPlaying
             ? 'bg-[#FFD84D] text-[#183247] border-[#183247]/30 shadow-xs'
@@ -201,7 +216,9 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
           <Play className="w-3.5 h-3.5 fill-current shrink-0" />
         )}
         <span>
-          {isPlaying ? `🎵 Playing · ${shortTrackLabel}` : `🎵 Play · ${shortTrackLabel}`}
+          {isPlaying
+            ? `🎵 Music On · ${shortTrackLabel}`
+            : `🔇 Music Off · ${shortTrackLabel}`}
         </span>
       </button>
 
