@@ -45,15 +45,13 @@ function readSharesStore(): Record<string, StoredShareRecord> {
 
 function writeSharesStore(
   store: Record<string, StoredShareRecord>,
-  latestRecord?: StoredShareRecord
+  savedRecord?: StoredShareRecord
 ): void {
   fs.writeFileSync(SHARES_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  if (latestRecord) {
-    const shareFilePath = path.join(PUBLIC_SHARES_DIR, `${latestRecord.id}.json`);
-    const latestFilePath = path.join(PUBLIC_SHARES_DIR, 'latest.json');
-    const serialized = JSON.stringify(latestRecord, null, 2);
+  if (savedRecord) {
+    const shareFilePath = path.join(PUBLIC_SHARES_DIR, `${savedRecord.id}.json`);
+    const serialized = JSON.stringify(savedRecord, null, 2);
     fs.writeFileSync(shareFilePath, serialized, 'utf-8');
-    fs.writeFileSync(latestFilePath, serialized, 'utf-8');
   }
 }
 
@@ -310,9 +308,9 @@ async function startServer() {
   });
 
   // 4. Retrieve a shared birthday configuration by its short ID
-  app.get('/api/shares/:id', (req, res) => {
+  const handleGetShare = (rawIdInput: string, res: express.Response) => {
     try {
-      const rawId = (req.params.id || '').trim();
+      const rawId = (rawIdInput || '').trim();
       if (!/^[a-zA-Z0-9_-]{3,32}$/.test(rawId)) {
         res.status(400).json({ error: 'Invalid share ID format.' });
         return;
@@ -321,14 +319,11 @@ async function startServer() {
       const store = readSharesStore();
       let record: StoredShareRecord | undefined = store[rawId];
 
-      // Also check static public/shares/<id>.json or public/shares/latest.json
+      // Also check static public/shares/<id>.json for this specific share ID
       if (!record) {
         const publicSharePath = path.join(PUBLIC_SHARES_DIR, `${rawId}.json`);
-        const latestSharePath = path.join(PUBLIC_SHARES_DIR, 'latest.json');
         if (fs.existsSync(publicSharePath)) {
           record = JSON.parse(fs.readFileSync(publicSharePath, 'utf-8'));
-        } else if (fs.existsSync(latestSharePath)) {
-          record = JSON.parse(fs.readFileSync(latestSharePath, 'utf-8'));
         }
       }
 
@@ -346,6 +341,15 @@ async function startServer() {
         error: 'Failed to load shared birthday configuration.',
       });
     }
+  };
+
+  app.get('/api/shares', (req, res) => {
+    const queryId = typeof req.query.id === 'string' ? req.query.id : '';
+    handleGetShare(queryId, res);
+  });
+
+  app.get('/api/shares/:id', (req, res) => {
+    handleGetShare(req.params.id || '', res);
   });
 
   // Vite middleware for development or static serving for production

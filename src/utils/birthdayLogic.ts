@@ -5,7 +5,7 @@ import {
   SectionVisibility,
 } from '../types/birthday';
 
-export const STORAGE_DRAFT_KEY = 'dorapocket_birthday_draft_v1';
+export const STORAGE_DRAFT_KEY = 'dorapocket_birthday_draft_v2';
 
 /**
  * Generates crisp, self-contained anime-style SVG data URIs so default memories
@@ -503,7 +503,25 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
   };
 }
 
-export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v1';
+export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v2';
+
+/**
+ * Generates a unique, compact short ID on the client (e.g., "dora-nobita-8x4k9m")
+ * so every new birthday person gets their own fresh share link and never collides
+ * with a previously created example.
+ */
+export function generateClientShareId(recipientName?: string): string {
+  const cleanSlug = (recipientName || 'bday')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, 8);
+  const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
+  let suffix = '';
+  for (let i = 0; i < 6; i++) {
+    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `dora${cleanSlug ? `-${cleanSlug}` : ''}-${suffix}`;
+}
 
 /**
  * Builds a compact, Nginx-safe short-ID share URL (e.g., https://example.com/?s=dora7x9k).

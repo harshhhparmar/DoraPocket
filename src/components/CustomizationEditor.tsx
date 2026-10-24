@@ -13,11 +13,13 @@ import {
 import {
   DEFAULT_BIRTHDAY_CONFIG,
   DEFAULT_MEMORIES,
+  STORAGE_DRAFT_KEY,
   STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
   buildCompactShareUrl,
   createMemorySceneDataUri,
   extractYouTubeVideoId,
+  generateClientShareId,
   generateStandaloneBirthdayHtml,
   moveItemInArray,
   normalizeBirthdayConfig,
@@ -100,12 +102,18 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [shareId, setShareId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       try {
-        return window.localStorage.getItem(STORAGE_SHARE_ID_KEY) || 'dorav4amjv';
+        const stored = window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
+        if (stored && stored !== 'dorav4amjv') {
+          return stored;
+        }
+        const freshId = generateClientShareId(config.recipientName);
+        window.localStorage.setItem(STORAGE_SHARE_ID_KEY, freshId);
+        return freshId;
       } catch {
-        return 'dorav4amjv';
+        return generateClientShareId(config.recipientName);
       }
     }
-    return 'dorav4amjv';
+    return generateClientShareId(config.recipientName);
   });
   const [isPublishingShare, setIsPublishingShare] = useState(false);
   const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
@@ -114,6 +122,20 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [editingCropMemory, setEditingCropMemory] = useState<PhotoMemory | null>(
     null
   );
+
+  // Keep the active shareId cache in localStorage synced with every user edit
+  useEffect(() => {
+    if (!shareId || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        `dorapocket_share_cache_${shareId}`,
+        JSON.stringify(config)
+      );
+      window.localStorage.setItem(STORAGE_DRAFT_KEY, JSON.stringify(config));
+    } catch {
+      // Ignore storage quota
+    }
+  }, [config, shareId]);
 
   // New Wish state
   const [newWishSender, setNewWishSender] = useState('');
@@ -659,7 +681,10 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       }
 
       try {
-        let resolvedId = shareId || 'dorav4amjv';
+        let resolvedId =
+          shareId && shareId !== 'dorav4amjv'
+            ? shareId
+            : generateClientShareId(config.recipientName);
         let resolvedConfig: BirthdayConfig = config;
 
         try {
@@ -965,6 +990,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   value={config.recipientName}
                   onChange={(e) => {
                     const nextName = e.target.value;
+                    const freshId = generateClientShareId(nextName);
+                    setShareId(freshId);
+                    try {
+                      window.localStorage.setItem(STORAGE_SHARE_ID_KEY, freshId);
+                    } catch {
+                      // Ignore storage error
+                    }
                     onChange({
                       ...config,
                       recipientName: nextName,

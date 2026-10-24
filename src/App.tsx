@@ -34,12 +34,25 @@ export default function App() {
       ? extractShareIdFromSearch(window.location.search)
       : null
   );
+  const skipNextRemoteFetchRef = React.useRef(false);
 
-  // 1. Initialize BirthdayConfig from localStorage draft or default (shared ?s=<id> loads asynchronously below)
+  // Clear legacy v1 keys so the old Svetang example never overrides new user input
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem('dorapocket_birthday_draft_v1');
+      window.localStorage.removeItem('dorapocket_share_id_v1');
+      window.localStorage.removeItem('dorapocket_share_cache_dorav4amjv');
+    } catch {
+      // Ignore storage error
+    }
+  }, []);
+
+  // 1. Initialize BirthdayConfig from localStorage draft/cache or clean default template
   const [config, setConfig] = useState<BirthdayConfig>(() => {
     if (typeof window !== 'undefined') {
       try {
-        if (sharedId) {
+        if (sharedId && sharedId !== 'dorav4amjv') {
           const cachedShare = window.localStorage.getItem(
             `dorapocket_share_cache_${sharedId}`
           );
@@ -109,6 +122,12 @@ export default function App() {
   // Fetch shared birthday configuration when opened via compact short link (?s=<id> or ?id=<id>)
   useEffect(() => {
     if (!sharedId) return;
+    if (skipNextRemoteFetchRef.current) {
+      skipNextRemoteFetchRef.current = false;
+      setIsLoadingSharedSurprise(false);
+      return;
+    }
+
     let cancelled = false;
     setIsLoadingSharedSurprise(true);
     setSharedSurpriseError(null);
@@ -144,38 +163,37 @@ export default function App() {
 
     const loadSharedSurprise = async () => {
       const safeId = encodeURIComponent(sharedId);
+      let foundConfig: Partial<BirthdayConfig> | null = null;
 
-      // 1. Try static JSON bundle (/shares/<id>.json) — works on static SPA hosts (ais-pre) and Vite
-      let foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
+      // 1. Check browser localStorage cache for this specific share ID first (always reflects latest user edits)
+      try {
+        const cached = window.localStorage.getItem(
+          `dorapocket_share_cache_${sharedId}`
+        );
+        if (cached) {
+          const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
+          if (parsed && typeof parsed.recipientName === 'string') {
+            foundConfig = parsed;
+          }
+        }
+      } catch {
+        // Ignore storage error
+      }
 
-      // 2. Try Express API endpoint (/api/shares/<id>)
+      // 2. Try backend API (/api/shares?id=<id> and /api/shares/<id>)
+      if (!foundConfig) {
+        foundConfig = await tryFetchShareJson(`/api/shares?id=${safeId}`);
+      }
       if (!foundConfig) {
         foundConfig = await tryFetchShareJson(`/api/shares/${safeId}`);
       }
 
-      // 3. Try browser localStorage share cache for this ID
+      // 3. Try static JSON bundle (/shares/<id>.json) for this specific share ID
       if (!foundConfig) {
-        try {
-          const cached = window.localStorage.getItem(
-            `dorapocket_share_cache_${sharedId}`
-          );
-          if (cached) {
-            const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
-            if (parsed && typeof parsed.recipientName === 'string') {
-              foundConfig = parsed;
-            }
-          }
-        } catch {
-          // Ignore storage error
-        }
+        foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
       }
 
-      // 4. Try static /shares/latest.json fallback
-      if (!foundConfig) {
-        foundConfig = await tryFetchShareJson('/shares/latest.json');
-      }
-
-      // 5. Try local draft in localStorage
+      // 4. Fallback to current browser draft if the user is previewing their own link locally
       if (!foundConfig) {
         try {
           const savedDraft = window.localStorage.getItem(STORAGE_DRAFT_KEY);
@@ -498,16 +516,23 @@ export default function App() {
                   onResetDefault={handleResetDefault}
                   onOpenFullscreenExperience={() => setViewMode('experience')}
                   onOpenShareLink={(targetId) => {
+                    skipNextRemoteFetchRef.current = true;
                     try {
+                      window.localStorage.setItem(
+                        `dorapocket_share_cache_${targetId}`,
+                        JSON.stringify(config)
+                      );
                       window.history.pushState(
                         {},
                         '',
                         `/?s=${encodeURIComponent(targetId)}`
                       );
                     } catch {
-                      // Ignore history restriction
+                      // Ignore history/storage restriction
                     }
                     setSharedId(targetId);
+                    setIsLoadingSharedSurprise(false);
+                    setSharedSurpriseError(null);
                     setViewMode('experience');
                     setActivePreviewStep('welcome');
                   }}
