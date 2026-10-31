@@ -14,8 +14,11 @@ import {
   STORAGE_DRAFT_KEY,
   STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
+  decodeShareHashPayload,
+  encodeShareHashPayload,
   extractShareIdFromSearch,
   normalizeBirthdayConfig,
+  purgeLegacyStorage,
 } from './utils/birthdayLogic';
 import { FloatingSkyBackdrop } from './components/DoraemonIllustrations';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
@@ -36,19 +39,12 @@ export default function App() {
   );
   const skipNextRemoteFetchRef = React.useRef(false);
 
-  // Clear legacy v1 keys so the old Svetang example never overrides new user input
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.removeItem('dorapocket_birthday_draft_v1');
-      window.localStorage.removeItem('dorapocket_share_id_v1');
-      window.localStorage.removeItem('dorapocket_share_cache_dorav4amjv');
-    } catch {
-      // Ignore storage error
-    }
-  }, []);
+  // Synchronously purge legacy v1/v2 keys and any old example data before reading initial state
+  if (typeof window !== 'undefined') {
+    purgeLegacyStorage();
+  }
 
-  // 1. Initialize BirthdayConfig from localStorage draft/cache or clean default template
+  // 1. Initialize BirthdayConfig from URL hash (#d=...), share cache, localStorage draft, or clean default template
   const [config, setConfig] = useState<BirthdayConfig>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -62,6 +58,10 @@ export default function App() {
               return normalizeBirthdayConfig(parsedShare);
             }
           }
+        }
+        const hashPayload = decodeShareHashPayload(window.location.hash);
+        if (hashPayload) {
+          return normalizeBirthdayConfig(hashPayload);
         }
         const saved = window.localStorage.getItem(STORAGE_DRAFT_KEY);
         if (saved) {
@@ -77,11 +77,12 @@ export default function App() {
     return DEFAULT_BIRTHDAY_CONFIG;
   });
 
-  // 2. Initialize ViewMode (?s=<id> or ?mode=experience opens fullscreen experience, ?autostart=1 opens studio)
+  // 2. Initialize ViewMode (?s=<id>, #d=..., or ?mode=experience opens fullscreen experience, ?autostart=1 opens studio)
   const [viewMode, setViewMode] = useState<AppViewMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (sharedId || params.get('mode') === 'experience') {
+      const hasHashData = Boolean(decodeShareHashPayload(window.location.hash));
+      if (sharedId || hasHashData || params.get('mode') === 'experience') {
         return 'experience';
       }
       if (params.get('autostart') === '1' || params.get('mode') === 'studio') {
@@ -193,11 +194,22 @@ export default function App() {
         foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
       }
 
-      // 4. Fallback to current browser draft if the user is previewing their own link locally
+      // 4. Try client-side URL hash payload (#d=...) — works across devices & Vercel without Nginx 414
+      if (!foundConfig && typeof window !== 'undefined') {
+        foundConfig = decodeShareHashPayload(window.location.hash);
+      }
+
+      // 5. Fallback to current browser draft ONLY if the draft belongs to this shareId
       if (!foundConfig) {
         try {
+          const currentDraftShareId = window.localStorage.getItem(
+            STORAGE_SHARE_ID_KEY
+          );
           const savedDraft = window.localStorage.getItem(STORAGE_DRAFT_KEY);
-          if (savedDraft) {
+          if (
+            savedDraft &&
+            (!currentDraftShareId || currentDraftShareId === sharedId)
+          ) {
             const parsed = JSON.parse(savedDraft) as Partial<BirthdayConfig>;
             if (parsed && typeof parsed.recipientName === 'string') {
               foundConfig = parsed;
@@ -522,11 +534,11 @@ export default function App() {
                         `dorapocket_share_cache_${targetId}`,
                         JSON.stringify(config)
                       );
-                      window.history.pushState(
-                        {},
-                        '',
-                        `/?s=${encodeURIComponent(targetId)}`
-                      );
+                      const hashData = encodeShareHashPayload(config);
+                      const nextUrl = hashData
+                        ? `/?s=${encodeURIComponent(targetId)}#d=${hashData}`
+                        : `/?s=${encodeURIComponent(targetId)}`;
+                      window.history.pushState({}, '', nextUrl);
                     } catch {
                       // Ignore history/storage restriction
                     }

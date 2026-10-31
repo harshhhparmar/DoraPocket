@@ -13,6 +13,8 @@ import {
 import {
   DEFAULT_BIRTHDAY_CONFIG,
   DEFAULT_MEMORIES,
+  DEFAULT_RECIPIENT_PLACEHOLDER,
+  DEFAULT_SENDER_PLACEHOLDER,
   STORAGE_DRAFT_KEY,
   STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
@@ -23,6 +25,7 @@ import {
   generateStandaloneBirthdayHtml,
   moveItemInArray,
   normalizeBirthdayConfig,
+  syncBirthdayConfigWithDetails,
   validateBirthdayDetails,
 } from '../utils/birthdayLogic';
 import {
@@ -162,10 +165,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     key: K,
     value: BirthdayConfig[K]
   ) => {
-    onChange({
-      ...config,
-      [key]: value,
-    });
+    onChange(
+      syncBirthdayConfigWithDetails(config, {
+        [key]: value,
+      } as Partial<BirthdayConfig>)
+    );
   };
 
   const currentMusic = config.music || DEFAULT_BIRTHDAY_CONFIG.music;
@@ -466,6 +470,42 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     );
   };
 
+  // Compress uploaded photo on an HTML5 canvas so it works reliably on both Express and Vercel
+  const compressImageDataUrl = (rawDataUrl: string): Promise<string> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 920;
+          let width = img.naturalWidth || 800;
+          let height = img.naturalHeight || 600;
+          if (width > maxDim || height > maxDim) {
+            if (width >= height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+            return;
+          }
+        } catch {
+          // Fallback to rawDataUrl
+        }
+        resolve(rawDataUrl);
+      };
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    });
+
   // Handle Multi-Photo File Upload (Stores uploaded photos on server and saves their compact URLs)
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -483,8 +523,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               const reader = new FileReader();
               reader.onload = async () => {
                 if (typeof reader.result === 'string') {
+                  const compressedDataUrl = await compressImageDataUrl(
+                    reader.result
+                  );
                   const storedImageUrl = await uploadDataUrlToServer(
-                    reader.result,
+                    compressedDataUrl,
                     'photo'
                   );
                   resolve({
@@ -494,7 +537,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                       file.name
                         .replace(/\.[^/.]+$/, '')
                         .replace(/[-_]/g, ' ') || 'Birthday Snapshot',
-                    dateLabel: 'Uploaded Memory · Special Day',
+                    dateLabel: `${config.recipientName && config.recipientName !== DEFAULT_RECIPIENT_PLACEHOLDER ? config.recipientName + ' · ' : ''}Special Memory`,
                     story:
                       'A favorite snapshot added to our birthday time capsule.',
                   });
@@ -513,9 +556,16 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       );
 
       if (validNewMemories.length > 0) {
+        // If current memories are only the 4 default SVG scenes, replace them so only the birthday person's uploaded photos show
+        const hasOnlyDefaultScenes =
+          config.memories.length > 0 &&
+          config.memories.every((m) => m.id.startsWith('mem-'));
+
         onChange({
           ...config,
-          memories: [...config.memories, ...validNewMemories],
+          memories: hasOnlyDefaultScenes
+            ? validNewMemories
+            : [...config.memories, ...validNewMemories],
         });
         onJumpToPreviewStep('memories');
         showToast(
@@ -729,34 +779,40 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           // Ignore storage error
         }
 
-        const compactUrl = buildCompactShareUrl(
+        const compactDisplayUrl = buildCompactShareUrl(
           window.location.origin,
           window.location.pathname,
           resolvedId
         );
+        const shareableFullUrl = buildCompactShareUrl(
+          window.location.origin,
+          window.location.pathname,
+          resolvedId,
+          resolvedConfig
+        );
 
         if (copyToClipboard) {
           try {
-            await navigator.clipboard.writeText(compactUrl);
+            await navigator.clipboard.writeText(shareableFullUrl);
             setCopiedLink(true);
             setTimeout(() => setCopiedLink(false), 3200);
             setShareSuccessMsg(
-              `Compact share link (${compactUrl}) saved & copied to clipboard! 🎉`
+              `Compact share link (${compactDisplayUrl}) saved & copied to clipboard! 🎉`
             );
             showToast('Compact share link saved & copied to clipboard! 🔗');
           } catch {
             setShareSuccessMsg(
-              `Compact share link ready (${compactUrl}) — copy it above to share! 🎉`
+              `Compact share link ready (${compactDisplayUrl}) — copy it above to share! 🎉`
             );
             showToast('Compact share link generated! 🔗');
           }
         } else {
           setShareSuccessMsg(
-            `Synced live share link (?s=${resolvedId}) with all photos & wishes ✨`
+            `Synced live share link (?s=${resolvedId}) for ${resolvedConfig.recipientName} ✨`
           );
         }
 
-        return compactUrl;
+        return shareableFullUrl;
       } catch (err) {
         const msg =
           err instanceof Error
@@ -881,6 +937,16 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
         ? `${window.location.origin}${window.location.pathname}?s=...`
         : '';
 
+  const shareUrlWithHash =
+    typeof window !== 'undefined' && shareId
+      ? buildCompactShareUrl(
+          window.location.origin,
+          window.location.pathname,
+          shareId,
+          config
+        )
+      : shareUrlPreview;
+
   return (
     <div className="bg-white rounded-[28px] border-2 border-[#64C8FF]/60 shadow-[0_14px_40px_rgba(22,141,206,0.09)] overflow-hidden flex flex-col">
       {/* Editor Top Navigation Tabs */}
@@ -946,12 +1012,32 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   Birthday Person&apos;s Details 🎂
                 </h2>
                 <p className="text-xs text-[#183247]/70">
-                  Every field updates the live birthday website beside you in real time.
+                  Enter the birthday person&apos;s details below—your personalized website generates automatically.
                 </p>
               </div>
 
-              {/* Quick Character Presets */}
+              {/* Start Fresh & Character Presets */}
               <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const freshId = generateClientShareId('new');
+                    setShareId(freshId);
+                    onChange({
+                      ...DEFAULT_BIRTHDAY_CONFIG,
+                      recipientName: '',
+                      nickname: '',
+                      senderName: '',
+                      relationship: 'Best Friend',
+                      headline: 'Happy Birthday! 🎂✨',
+                      memories: [],
+                    });
+                    showToast('Cleared form for a brand-new birthday person ✨');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#FFD84D] hover:bg-[#F5CA2E] text-[#183247] text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  + New Person (Clear)
+                </button>
                 {(
                   [
                     { id: 'nobita', label: 'Nobita' },
@@ -964,7 +1050,10 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     key={preset.id}
                     type="button"
                     onClick={() => {
-                      onChange(applyCharacterPreset(preset.id, config));
+                      const nextPreset = applyCharacterPreset(preset.id, config);
+                      const freshId = generateClientShareId(nextPreset.recipientName);
+                      setShareId(freshId);
+                      onChange(nextPreset);
                       showToast(`Loaded ${preset.label} preset ✨`);
                     }}
                     className="px-2.5 py-1.5 rounded-lg bg-[#EAF7FF] hover:bg-[#64C8FF]/40 text-[#183247] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
@@ -987,7 +1076,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 <input
                   id="input-recipient-name"
                   type="text"
-                  value={config.recipientName}
+                  value={
+                    config.recipientName === DEFAULT_RECIPIENT_PLACEHOLDER
+                      ? ''
+                      : config.recipientName
+                  }
                   onChange={(e) => {
                     const nextName = e.target.value;
                     const freshId = generateClientShareId(nextName);
@@ -997,13 +1090,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     } catch {
                       // Ignore storage error
                     }
-                    onChange({
-                      ...config,
-                      recipientName: nextName,
-                      headline: `Happy Birthday, ${nextName || 'Friend'}! 🎂`,
-                    });
+                    onChange(
+                      syncBirthdayConfigWithDetails(config, {
+                        recipientName: nextName,
+                      })
+                    );
                   }}
-                  placeholder="e.g., Nobita, Shizuka, Alex"
+                  placeholder="Enter birthday person's name (e.g., Aarav, Priya)"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF] text-sm text-[#183247] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#168DCE]"
                 />
                 {validation.errors.recipientName && (
@@ -1026,7 +1119,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   type="text"
                   value={config.nickname}
                   onChange={(e) => updateField('nickname', e.target.value)}
-                  placeholder="e.g., Nobi-kun, Captain"
+                  placeholder="e.g., Champ, Bestie, Captain"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF] text-sm text-[#183247] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#168DCE]"
                 />
               </div>
@@ -1090,9 +1183,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 <input
                   id="input-sender-name"
                   type="text"
-                  value={config.senderName}
+                  value={
+                    config.senderName === DEFAULT_SENDER_PLACEHOLDER
+                      ? ''
+                      : config.senderName
+                  }
                   onChange={(e) => updateField('senderName', e.target.value)}
-                  placeholder="e.g., Doraemon & Crew"
+                  placeholder="Enter your name (e.g., Harsh & Friends)"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF] text-sm text-[#183247] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#168DCE]"
                 />
               </div>
@@ -1132,7 +1229,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   updateField('headline', e.target.value);
                   onJumpToPreviewStep('milestone');
                 }}
-                placeholder="Happy Birthday, Nobita! 🎂"
+                placeholder="Happy Birthday! 🎂"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF] text-sm text-[#183247] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#168DCE]"
               />
             </div>
@@ -1157,6 +1254,47 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-xl bg-[#EAF7FF]/50 border border-[#64C8FF] text-sm text-[#183247] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#168DCE] leading-relaxed"
               />
             </div>
+
+            {/* Generate Birthday Website CTA */}
+            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#EAF7FF]/75 p-4 rounded-2xl border border-[#64C8FF]/60">
+              <div className="text-xs text-[#183247]/80">
+                <strong className="text-[#168DCE] block font-display text-sm">
+                  Ready to generate {config.recipientName && config.recipientName !== DEFAULT_RECIPIENT_PLACEHOLDER ? `${config.recipientName}'s` : 'your'} website?
+                </strong>
+                Updates all steps, letter, milestone &amp; shareable link according to your entered details.
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const synced = syncBirthdayConfigWithDetails(config, {
+                      recipientName: config.recipientName,
+                      age: config.age,
+                      senderName: config.senderName,
+                    });
+                    onChange(synced);
+                    onSaveDraft();
+                    await publishShareConfiguration(false);
+                    onJumpToPreviewStep('welcome');
+                    showToast(
+                      `Generated personalized birthday website for ${
+                        synced.recipientName || 'your friend'
+                      }! 🎂✨`
+                    );
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-bold text-xs shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Generate Birthday Website 🎂✨
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenFullscreenExperience}
+                  className="px-3.5 py-2.5 rounded-xl bg-[#FFD84D] hover:bg-[#F5CA2E] text-[#183247] font-display font-bold text-xs shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Launch Fullscreen ↗
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1169,12 +1307,24 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   Photos &amp; Memories Album 📸
                 </h2>
                 <p className="text-xs text-[#183247]/70">
-                  Upload photos from your device, add anime sky scenes, edit captions,
+                  Upload photos from your device, crop &amp; enhance, edit captions,
                   and reorder cards.
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
+                {config.memories.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateField('memories', []);
+                      showToast('Cleared photo gallery — upload your own photos! 📸');
+                    }}
+                    className="px-3 py-2.5 rounded-xl bg-[#EAF7FF] hover:bg-[#F04444]/15 text-[#183247] hover:text-[#F04444] font-semibold text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Clear All Photos
+                  </button>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2105,7 +2255,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                         Open Short Link →
                       </button>
                       <a
-                        href={shareUrlPreview}
+                        href={shareUrlWithHash}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[#183247]/70 hover:text-[#168DCE] hover:underline whitespace-nowrap flex items-center gap-1"
@@ -2188,7 +2338,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     type="button"
                     onClick={() => {
                       onResetDefault();
-                      showToast('Reset birthday studio to default Nobita template 🔄');
+                      showToast('Reset birthday studio to clean template 🔄');
                     }}
                     className="px-3.5 py-2 rounded-xl bg-[#EAF7FF] hover:bg-[#64C8FF]/30 text-[#183247] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                   >

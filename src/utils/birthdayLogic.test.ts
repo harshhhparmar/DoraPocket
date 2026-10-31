@@ -5,6 +5,8 @@ import {
   applyCharacterPreset,
   buildCanvasFilterString,
   buildCompactShareUrl,
+  decodeShareHashPayload,
+  encodeShareHashPayload,
   extractShareIdFromSearch,
   extractYouTubeVideoId,
   formatOrdinalAge,
@@ -13,6 +15,7 @@ import {
   getAspectRatioDimensions,
   moveItemInArray,
   normalizeBirthdayConfig,
+  syncBirthdayConfigWithDetails,
   validateBirthdayDetails,
 } from './birthdayLogic';
 
@@ -93,16 +96,44 @@ test('buildCompactShareUrl and extractShareIdFromSearch keep share links short, 
   const publicUrl = buildCompactShareUrl(
     'https://ais-dev-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app',
     '/',
-    'dorav4amjv'
+    'dora88xy12'
   );
   assert.equal(
     publicUrl,
-    'https://ais-pre-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app/?s=dorav4amjv'
+    'https://ais-pre-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app/?s=dora88xy12'
   );
 
   assert.equal(extractShareIdFromSearch('?s=dora7x9k2m'), 'dora7x9k2m');
   assert.equal(extractShareIdFromSearch('?id=dora99abc'), 'dora99abc');
   assert.equal(extractShareIdFromSearch('?mode=studio'), null);
+});
+
+test('syncBirthdayConfigWithDetails updates headline, letter greeting, age in letter body, and sign-off dynamically', () => {
+  let updated = syncBirthdayConfigWithDetails(DEFAULT_BIRTHDAY_CONFIG, {
+    recipientName: 'Aarav',
+  });
+  updated = syncBirthdayConfigWithDetails(updated, {
+    age: 24,
+  });
+  updated = syncBirthdayConfigWithDetails(updated, {
+    senderName: 'Harsh',
+  });
+
+  assert.equal(updated.recipientName, 'Aarav');
+  assert.equal(updated.headline, 'Happy Birthday, Aarav! 🎂');
+  assert.equal(updated.letterGreeting, 'Dearest Aarav,');
+  assert.ok(updated.letterBody.includes('As you turn 24 today'));
+  assert.ok(updated.letterSignOff.includes('Harsh'));
+  assert.equal(updated.finalHeadline, 'Make a Wish, Aarav! 🎂✨');
+
+  // Encode & decode hash payload for cross-device / Vercel sharing
+  const encoded = encodeShareHashPayload(updated);
+  assert.ok(encoded.length > 10);
+  const decoded = decodeShareHashPayload(`#d=${encoded}`);
+  assert.ok(decoded);
+  assert.equal(decoded.recipientName, 'Aarav');
+  assert.equal(decoded.age, 24);
+  assert.equal(decoded.senderName, 'Harsh');
 });
 
 test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve personalized details and normalize upload paths', () => {
@@ -112,8 +143,8 @@ test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve person
     memories: [
       {
         id: 'm1',
-        imageUrl: '/api/uploads/cropped-photo-c29ee7e5df85.png',
-        caption: 'Svetu Memory',
+        imageUrl: '/api/uploads/photo-123456.png',
+        caption: 'Hilltop Memory',
         dateLabel: 'Today',
         story: 'Fun times',
       },
@@ -124,7 +155,7 @@ test('normalizeBirthdayConfig and generateStandaloneBirthdayHtml preserve person
   assert.equal(normalized.appearance.layout, 'anywhere-storybook');
   assert.equal(
     normalized.memories[0].imageUrl,
-    '/uploads/cropped-photo-c29ee7e5df85.png'
+    '/uploads/photo-123456.png'
   );
 
   const html = generateStandaloneBirthdayHtml(normalized);
@@ -157,4 +188,5 @@ test('getAspectRatioDimensions and buildCanvasFilterString compute accurate crop
     'brightness(110%) contrast(105%) saturate(120%) sepia(15%)'
   );
 });
+
 

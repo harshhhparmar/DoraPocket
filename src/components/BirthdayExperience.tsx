@@ -8,6 +8,7 @@ import {
   createMemorySceneDataUri,
   formatOrdinalAge,
   getActiveExperienceSteps,
+  getPersonalizedViewConfig,
 } from '../utils/birthdayLogic';
 import {
   AnywhereDoorInteractive,
@@ -42,7 +43,7 @@ interface BirthdayExperienceProps {
 }
 
 export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
-  config,
+  config: rawConfig,
   activeStepId,
   onStepChange,
   onTriggerConfetti,
@@ -51,6 +52,7 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   isMusicPlaying: externalMusicPlaying,
   onToggleMusic: externalToggleMusic,
 }) => {
+  const config = getPersonalizedViewConfig(rawConfig);
   const steps = getActiveExperienceSteps(config.sections);
   const currentStepIndex = Math.max(
     0,

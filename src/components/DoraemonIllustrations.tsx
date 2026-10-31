@@ -38,7 +38,7 @@ export const DoraBellBadge: React.FC<{ size?: number; className?: string }> = ({
 export const DoraemonHeroArtwork: React.FC<{
   recipientName?: string;
   onDoorClick?: () => void;
-}> = ({ recipientName = 'Nobita', onDoorClick }) => {
+}> = ({ recipientName = 'Birthday Star', onDoorClick }) => {
   return (
     <div className="relative w-full max-w-[540px] mx-auto select-none">
       <svg

@@ -86,7 +86,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="lg:col-span-6 flex justify-center">
             <div className="w-full bg-white/85 backdrop-blur-sm rounded-[32px] border border-[#64C8FF]/50 p-6 sm:p-8 shadow-[0_20px_50px_rgba(22,141,206,0.12)]">
               <DoraemonHeroArtwork
-                recipientName={config.recipientName || 'Nobita'}
+                recipientName={config.recipientName || 'Birthday Star'}
                 onDoorClick={onExploreExperience}
               />
               <div className="mt-4 flex items-center justify-between text-xs text-[#183247]/70 px-2">

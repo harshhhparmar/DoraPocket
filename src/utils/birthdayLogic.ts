@@ -5,7 +5,9 @@ import {
   SectionVisibility,
 } from '../types/birthday';
 
-export const STORAGE_DRAFT_KEY = 'dorapocket_birthday_draft_v2';
+export const STORAGE_DRAFT_KEY = 'dorapocket_birthday_draft_v3';
+export const DEFAULT_RECIPIENT_PLACEHOLDER = 'Birthday Star';
+export const DEFAULT_SENDER_PLACEHOLDER = 'Your Besties';
 
 /**
  * Generates crisp, self-contained anime-style SVG data URIs so default memories
@@ -199,52 +201,52 @@ export const DEFAULT_MEMORIES: PhotoMemory[] = [
 ];
 
 export const DEFAULT_BIRTHDAY_CONFIG: BirthdayConfig = {
-  recipientName: 'Nobita',
-  age: 21,
-  birthdayDate: '2026-08-07',
-  nickname: 'Nobi-kun',
-  senderName: 'Doraemon & Friends',
-  relationship: 'Best Friend from the 22nd Century',
-  headline: 'Happy Birthday, Nobita! 🎂',
+  recipientName: DEFAULT_RECIPIENT_PLACEHOLDER,
+  age: 20,
+  birthdayDate: new Date().toISOString().slice(0, 10),
+  nickname: '',
+  senderName: DEFAULT_SENDER_PLACEHOLDER,
+  relationship: 'Best Friend',
+  headline: 'Happy Birthday! 🎂✨',
   personalMessage:
-    'Even without a single 22nd-century gadget from my four-dimensional pocket, your kindness, big heart, and loyalty already make everyone around you smile brighter than a sunny sky.',
+    'Even without a single 22nd-century gadget from a four-dimensional pocket, your kindness, big heart, and energy already make everyone around you smile brighter than a sunny sky.',
   memories: DEFAULT_MEMORIES,
-  letterGreeting: 'Dearest Nobita,',
+  letterGreeting: 'Dearest Birthday Star,',
   letterBody:
-    'Do you remember all the afternoons we spent wishing for a shortcut or a magic gadget to make life easier? Looking back at every adventure we have shared, the real magic was never inside the 4D Pocket—it was how you never stopped caring about your friends.\n\nAs you turn 21 today, may your skies always stay clear and bright blue, may your plate always have warm dorayaki waiting, and may every door you open lead to a year full of courage, laughter, and unforgettable memories.',
-  letterSignOff: 'With a ringing golden bell & endless cheers, Doraemon 🔔💙',
+    'Looking back at every adventure and laugh we have shared, the real magic was never inside the 4D Pocket—it was how you never stopped bringing warmth and joy to everyone around you.\n\nAs you turn 20 today, may your skies always stay clear and bright blue, may your plate always have your favorite treats waiting, and may every door you open lead to a year full of courage, laughter, and unforgettable memories.',
+  letterSignOff: 'With a ringing golden bell & endless cheers, Your Besties 🔔💙',
   wishes: [
     {
       id: 'wish-1',
-      senderName: 'Shizuka Minamoto',
+      senderName: 'Childhood Bestie',
       character: 'shizuka',
-      roleLabel: 'Childhood Friend',
+      roleLabel: 'Best Friend',
       message:
-        'Happy Birthday! I baked a special sweet potato & strawberry cake just for today. Never lose your gentle heart! 🎂✨',
+        'Happy Birthday! Baked a special strawberry cake in spirit just for today. Never lose your gentle heart! 🎂✨',
     },
     {
       id: 'wish-2',
-      senderName: 'Takeshi "Gian" Goda',
+      senderName: 'Squad MVP',
       character: 'gian',
-      roleLabel: 'Neighborhood MVP',
+      roleLabel: 'Partner in Crime',
       message:
-        'Hey pal!! Today I am dedicating a 2-hour birthday concert just for you—no earplugs allowed! Have an epic year! 🎤🎉',
+        'Hey pal!! Today we are celebrating your big day at full volume! Have an epic year ahead! 🎤🎉',
     },
     {
       id: 'wish-3',
-      senderName: 'Suneo Honekawa',
+      senderName: 'Adventure Co-Pilot',
       character: 'suneo',
-      roleLabel: 'Adventure Co-Pilot',
+      roleLabel: 'Travel Buddy',
       message:
-        'Happy Birthday! Next weekend the RC planes and front-row tickets are on me. Let us make this year legendary! ✈️🌟',
+        'Happy Birthday! Next weekend our road trip and celebration treats are on me. Let us make this year legendary! ✈️🌟',
     },
     {
       id: 'wish-4',
-      senderName: 'Dorami',
+      senderName: '22nd-Century Crew',
       character: 'dorami',
-      roleLabel: '22nd Century Sister',
+      roleLabel: 'Family & Friends',
       message:
-        'Sending melon bread and bright yellow ribbons from the future! Wishing you 365 days of happiness and zero homework stress! 🎀💛',
+        'Sending bright yellow ribbons and sunshine from the future! Wishing you 365 days of happiness and zero stress! 🎀💛',
     },
   ],
   funnyMoments: [
@@ -503,15 +505,222 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
   };
 }
 
-export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v2';
+export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v3';
 
 /**
- * Generates a unique, compact short ID on the client (e.g., "dora-nobita-8x4k9m")
+ * Purges legacy localStorage keys (including any cached "Svetang" or "Nobita" examples)
+ * so the website never shows hardcoded details or pictures of a previous example person.
+ */
+export function purgeLegacyStorage(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const legacyKeys = [
+      'dorapocket_birthday_draft_v1',
+      'dorapocket_birthday_draft_v2',
+      'dorapocket_share_id_v1',
+      'dorapocket_share_id_v2',
+      'dorapocket_share_cache_dorav4amjv',
+    ];
+    for (const k of legacyKeys) {
+      window.localStorage.removeItem(k);
+    }
+
+    const keysToCheck: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith('dorapocket_')) {
+        keysToCheck.push(key);
+      }
+    }
+
+    for (const key of keysToCheck) {
+      const val = window.localStorage.getItem(key) || '';
+      const lower = val.toLowerCase();
+      if (
+        lower.includes('svetang') ||
+        lower.includes('svetu') ||
+        lower.includes('dorav4amjv') ||
+        lower.includes('cropped-photo-c29ee7e5df85')
+      ) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
+/**
+ * Dynamically synchronizes the entire birthday website (headline, letter greeting,
+ * age in letter body, sign-off, and final headline) whenever the user enters or edits
+ * the birthday person's details in the editor.
+ */
+export function syncBirthdayConfigWithDetails(
+  prevConfig: BirthdayConfig,
+  patch: Partial<BirthdayConfig>
+): BirthdayConfig {
+  const merged: BirthdayConfig = {
+    ...prevConfig,
+    ...patch,
+  };
+
+  const prevName = (prevConfig.recipientName || '').trim();
+  const nextName = (merged.recipientName || '').trim();
+  const displayName =
+    nextName && nextName !== DEFAULT_RECIPIENT_PLACEHOLDER
+      ? nextName
+      : 'Friend';
+
+  // If recipientName changed, dynamically update headline, letterGreeting, finalHeadline, and clear stale Nobi-kun nickname
+  if ('recipientName' in patch) {
+    const prevAutoHeadline = `Happy Birthday, ${prevName}! 🎂`;
+    if (
+      !merged.headline ||
+      merged.headline === 'Happy Birthday! 🎂✨' ||
+      merged.headline === 'Happy Birthday, Nobita! 🎂' ||
+      merged.headline === 'Happy Birthday, Friend! 🎂' ||
+      merged.headline === prevAutoHeadline
+    ) {
+      merged.headline = nextName
+        ? `Happy Birthday, ${nextName}! 🎂`
+        : 'Happy Birthday! 🎂✨';
+    }
+
+    const prevAutoGreeting = `Dearest ${prevName},`;
+    if (
+      !merged.letterGreeting ||
+      merged.letterGreeting === 'Dearest Birthday Star,' ||
+      merged.letterGreeting === 'Dearest Nobita,' ||
+      merged.letterGreeting === 'Dearest Friend,' ||
+      merged.letterGreeting === prevAutoGreeting
+    ) {
+      merged.letterGreeting = `Dearest ${displayName},`;
+    }
+
+    if (
+      merged.nickname === 'Nobi-kun' &&
+      nextName.toLowerCase() !== 'nobita'
+    ) {
+      merged.nickname = '';
+    }
+
+    const prevAutoFinale = `Make a Wish, ${prevName}! 🎂✨`;
+    if (
+      !merged.finalHeadline ||
+      merged.finalHeadline === 'Make a Wish & Blow Out the Candles! 🎂✨' ||
+      merged.finalHeadline === prevAutoFinale
+    ) {
+      merged.finalHeadline = nextName
+        ? `Make a Wish, ${nextName}! 🎂✨`
+        : 'Make a Wish & Blow Out the Candles! 🎂✨';
+    }
+  }
+
+  // If age changed, dynamically update "As you turn X today" in letterBody
+  if ('age' in patch && Number.isFinite(merged.age) && merged.age > 0) {
+    merged.letterBody = (merged.letterBody || '').replace(
+      /As you turn \d+ today/gi,
+      `As you turn ${merged.age} today`
+    );
+  }
+
+  // If senderName changed, dynamically update letterSignOff
+  if ('senderName' in patch) {
+    const prevSender = (prevConfig.senderName || '').trim();
+    const nextSender = (merged.senderName || '').trim();
+    const displaySender =
+      nextSender && nextSender !== DEFAULT_SENDER_PLACEHOLDER
+        ? nextSender
+        : 'Your Friends';
+
+    const prevAutoSignOff = `With a ringing golden bell & endless cheers, ${prevSender} 🔔💙`;
+    if (
+      !merged.letterSignOff ||
+      merged.letterSignOff.includes('Your Besties') ||
+      merged.letterSignOff.includes('Doraemon') ||
+      merged.letterSignOff === prevAutoSignOff
+    ) {
+      merged.letterSignOff = `With a ringing golden bell & endless cheers, ${displaySender} 🔔💙`;
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Resolves any remaining placeholder or default strings in a BirthdayConfig at render time
+ * so the generated website always reflects the user's entered name, age, sender, and relationship.
+ */
+export function getPersonalizedViewConfig(config: BirthdayConfig): BirthdayConfig {
+  const rawName = (config.recipientName || '').trim();
+  const hasCustomName =
+    rawName.length > 0 && rawName !== DEFAULT_RECIPIENT_PLACEHOLDER;
+  const activeName = hasCustomName ? rawName : rawName || 'Birthday Star';
+
+  const rawSender = (config.senderName || '').trim();
+  const hasCustomSender =
+    rawSender.length > 0 && rawSender !== DEFAULT_SENDER_PLACEHOLDER;
+  const activeSender = hasCustomSender ? rawSender : rawSender || 'Your Besties';
+
+  let nickname = config.nickname || '';
+  if (nickname === 'Nobi-kun' && activeName.toLowerCase() !== 'nobita') {
+    nickname = '';
+  }
+
+  let headline = config.headline || `Happy Birthday, ${activeName}! 🎂`;
+  if (hasCustomName && (headline === 'Happy Birthday! 🎂✨' || headline.includes('Birthday Star') || (headline.includes('Nobita') && activeName.toLowerCase() !== 'nobita'))) {
+    headline = `Happy Birthday, ${activeName}! 🎂`;
+  }
+
+  let letterGreeting = config.letterGreeting || `Dearest ${activeName},`;
+  if (
+    hasCustomName &&
+    (letterGreeting.includes('Birthday Star') ||
+      (letterGreeting.includes('Nobita') && activeName.toLowerCase() !== 'nobita'))
+  ) {
+    letterGreeting = `Dearest ${activeName},`;
+  }
+
+  let letterBody = config.letterBody || DEFAULT_BIRTHDAY_CONFIG.letterBody;
+  if (Number.isFinite(config.age) && config.age > 0) {
+    letterBody = letterBody.replace(
+      /As you turn \d+ today/gi,
+      `As you turn ${config.age} today`
+    );
+  }
+
+  let letterSignOff = config.letterSignOff || `With endless cheers, ${activeSender} 🔔💙`;
+  if (
+    hasCustomSender &&
+    (letterSignOff.includes('Your Besties') ||
+      (letterSignOff.includes('Doraemon') && !activeSender.toLowerCase().includes('doraemon')))
+  ) {
+    letterSignOff = `With a ringing golden bell & endless cheers, ${activeSender} 🔔💙`;
+  }
+
+  return {
+    ...config,
+    recipientName: activeName,
+    nickname,
+    senderName: activeSender,
+    headline,
+    letterGreeting,
+    letterBody,
+    letterSignOff,
+  };
+}
+
+/**
+ * Generates a unique, compact short ID on the client (e.g., "dora-aarav-8x4k9m")
  * so every new birthday person gets their own fresh share link and never collides
  * with a previously created example.
  */
 export function generateClientShareId(recipientName?: string): string {
-  const cleanSlug = (recipientName || 'bday')
+  const raw =
+    recipientName && recipientName !== DEFAULT_RECIPIENT_PLACEHOLDER
+      ? recipientName
+      : 'bday';
+  const cleanSlug = raw
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '')
     .slice(0, 8);
@@ -524,15 +733,92 @@ export function generateClientShareId(recipientName?: string): string {
 }
 
 /**
+ * Encodes a lightweight, URL-safe base64 payload of the BirthdayConfig for the URL hash (#d=...).
+ * Browsers NEVER send the URL hash (#...) in HTTP requests to Nginx or Vercel, so this is
+ * 100% immune to 414 Request-URI Too Large errors while allowing shared links to work
+ * across devices and stateless deployments even without a database.
+ */
+export function encodeShareHashPayload(config: BirthdayConfig): string {
+  try {
+    const personalized = getPersonalizedViewConfig(config);
+    const lightweightMemories = (personalized.memories || []).map((m) => {
+      // Keep server URLs, external URLs, and compact data URLs (< 90KB); fallback huge raw base64 to scenePreset
+      const isCompact =
+        typeof m.imageUrl === 'string' &&
+        (!m.imageUrl.startsWith('data:') || m.imageUrl.length < 90000);
+      return {
+        ...m,
+        imageUrl: isCompact
+          ? m.imageUrl
+          : createMemorySceneDataUri(m.scenePreset || 'sunset-hill'),
+      };
+    });
+
+    const payloadObj: Partial<BirthdayConfig> = {
+      ...personalized,
+      memories: lightweightMemories,
+      music: {
+        ...personalized.music,
+        customAudioDataUrl: undefined,
+      },
+    };
+
+    const json = JSON.stringify(payloadObj);
+    const utf8Bytes = encodeURIComponent(json);
+    const base64 =
+      typeof btoa === 'function'
+        ? btoa(utf8Bytes)
+        : Buffer.from(utf8Bytes, 'utf-8').toString('base64');
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Decodes a BirthdayConfig from a URL hash fragment (#d=...).
+ */
+export function decodeShareHashPayload(
+  hash: string
+): Partial<BirthdayConfig> | null {
+  if (!hash || typeof hash !== 'string') return null;
+  const cleanHash = hash.replace(/^#/, '');
+  const params = new URLSearchParams(cleanHash);
+  const rawEncoded = params.get('d');
+  if (!rawEncoded) return null;
+
+  try {
+    const base64 = rawEncoded.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const utf8Bytes =
+      typeof atob === 'function'
+        ? atob(padded)
+        : Buffer.from(padded, 'base64').toString('utf-8');
+    const json = decodeURIComponent(utf8Bytes);
+    const parsed = JSON.parse(json) as Partial<BirthdayConfig>;
+    if (parsed && typeof parsed === 'object' && typeof parsed.recipientName === 'string') {
+      return parsed;
+    }
+  } catch {
+    // Ignore malformed hash
+  }
+  return null;
+}
+
+/**
  * Builds a compact, Nginx-safe short-ID share URL (e.g., https://example.com/?s=dora7x9k).
  * Automatically converts private AI Studio dev preview origins (https://ais-dev-...)
  * to the publicly accessible Shared App origin (https://ais-pre-...) so shared links
  * open in any browser tab without iframe authentication errors.
+ * When `configForHash` is provided, appends `#d=<encodedPayload>` in the URL fragment
+ * (which is never sent to HTTP servers/Nginx, avoiding 414 errors while ensuring
+ * cross-device / Vercel stateless link reliability).
  */
 export function buildCompactShareUrl(
   origin: string,
   pathname: string,
-  shortId: string
+  shortId: string,
+  configForHash?: BirthdayConfig
 ): string {
   const publicOrigin = (origin || '')
     .replace(/\/+$/, '')
@@ -542,7 +828,14 @@ export function buildCompactShareUrl(
   if (!safeId) {
     return `${publicOrigin}${cleanPath}`;
   }
-  return `${publicOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
+  const base = `${publicOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
+  if (configForHash) {
+    const hashData = encodeShareHashPayload(configForHash);
+    if (hashData) {
+      return `${base}#d=${hashData}`;
+    }
+  }
+  return base;
 }
 
 /**
@@ -595,7 +888,7 @@ export function normalizeBirthdayConfig(
     );
   }
 
-  return {
+  return getPersonalizedViewConfig({
     ...DEFAULT_BIRTHDAY_CONFIG,
     ...parsed,
     memories: normalizedMemories,
@@ -617,7 +910,7 @@ export function normalizeBirthdayConfig(
       ...(parsed.appearance || {}),
     },
     music: rawMusic,
-  };
+  });
 }
 
 function escapeHtml(str: string): string {
