@@ -742,10 +742,10 @@ export function encodeShareHashPayload(config: BirthdayConfig): string {
   try {
     const personalized = getPersonalizedViewConfig(config);
     const lightweightMemories = (personalized.memories || []).map((m) => {
-      // Keep server URLs, external URLs, and compact data URLs (< 90KB); fallback huge raw base64 to scenePreset
+      // Keep server URLs, external URLs, and compressed photo data URLs (< 450KB); fallback huge raw base64 to scenePreset
       const isCompact =
         typeof m.imageUrl === 'string' &&
-        (!m.imageUrl.startsWith('data:') || m.imageUrl.length < 90000);
+        (!m.imageUrl.startsWith('data:') || m.imageUrl.length < 450000);
       return {
         ...m,
         imageUrl: isCompact

@@ -81,6 +81,11 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   const [candlesBlown, setCandlesBlown] = useState(false);
   const [brokenImageIds, setBrokenImageIds] = useState<Record<string, boolean>>({});
 
+  // Reset broken image markers whenever the user updates or uploads new memories
+  useEffect(() => {
+    setBrokenImageIds({});
+  }, [rawConfig.memories]);
+
   // Keep activeStepId valid if user hides the currently viewed section in editor
   useEffect(() => {
     if (!steps.some((s) => s.id === activeStepId) && steps.length > 0) {
@@ -284,6 +289,43 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
               recipientName={config.recipientName || 'Friend'}
             />
 
+            {config.memories.length > 0 && (
+              <div className="pt-2 space-y-2">
+                <span className="text-[11px] font-semibold text-[#168DCE] block">
+                  📸 {config.recipientName || 'Birthday'}&apos;s Memory Preview (Click any photo to view)
+                </span>
+                <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                  {config.memories.slice(0, 4).map((mem, idx) => {
+                    const fallbackSrc = createMemorySceneDataUri(
+                      mem.scenePreset || 'sunset-hill'
+                    );
+                    const imgSrc = brokenImageIds[mem.id]
+                      ? fallbackSrc
+                      : mem.imageUrl || fallbackSrc;
+                    return (
+                      <button
+                        key={mem.id}
+                        type="button"
+                        onClick={() => setSelectedMemory(mem)}
+                        title={mem.caption}
+                        className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-[#64C8FF] shadow-sm hover:scale-105 transition-transform bg-[#EAF7FF] cursor-pointer"
+                      >
+                        <img
+                          src={imgSrc}
+                          alt={mem.caption || `Memory ${idx + 1}`}
+                          referrerPolicy="no-referrer"
+                          onError={() =>
+                            setBrokenImageIds((prev) => ({ ...prev, [mem.id]: true }))
+                          }
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {isDoorOpen && (
               <div className="pt-2">
                 <button
@@ -345,6 +387,77 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Featured Birthday Star Photos Showcase */}
+            {config.memories.length > 0 && (
+              <div className="bg-[#EAF7FF]/50 rounded-3xl p-4 sm:p-5 border border-[#64C8FF]/60 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#168DCE]">
+                    📸 {config.recipientName || 'Birthday Star'}&apos;s Featured Snapshots
+                  </span>
+                  {steps.some((s) => s.id === 'memories') && (
+                    <button
+                      type="button"
+                      onClick={() => onStepChange('memories')}
+                      className="text-xs font-semibold text-[#168DCE] hover:underline cursor-pointer"
+                    >
+                      Open Full Memory Album ({config.memories.length}) →
+                    </button>
+                  )}
+                </div>
+                <div
+                  className={`grid gap-3 ${
+                    config.memories.length === 1
+                      ? 'grid-cols-1 max-w-md mx-auto'
+                      : 'grid-cols-2 sm:grid-cols-4'
+                  }`}
+                >
+                  {config.memories.slice(0, 4).map((mem, idx) => {
+                    const fallbackSrc = createMemorySceneDataUri(
+                      mem.scenePreset || 'sunset-hill'
+                    );
+                    const imgSrc = brokenImageIds[mem.id]
+                      ? fallbackSrc
+                      : mem.imageUrl || fallbackSrc;
+                    return (
+                      <div
+                        key={mem.id}
+                        onClick={() => setSelectedMemory(mem)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedMemory(mem);
+                          }
+                        }}
+                        className="group rounded-2xl overflow-hidden bg-white border-2 border-[#64C8FF]/60 shadow-xs cursor-pointer flex flex-col"
+                      >
+                        <div className="aspect-[4/3] w-full overflow-hidden bg-[#D0EEFF]">
+                          <img
+                            src={imgSrc}
+                            alt={mem.caption || `Birthday photo ${idx + 1}`}
+                            referrerPolicy="no-referrer"
+                            onError={() =>
+                              setBrokenImageIds((prev) => ({
+                                ...prev,
+                                [mem.id]: true,
+                              }))
+                            }
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        </div>
+                        <div className="px-2.5 py-1.5 text-center">
+                          <span className="text-[11px] font-bold text-[#183247] block truncate">
+                            {mem.caption}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Personal Note Card */}
             <div className="bg-[#EAF7FF]/60 rounded-3xl p-6 sm:p-7 border border-[#64C8FF]/60 relative">

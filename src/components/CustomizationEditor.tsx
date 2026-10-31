@@ -476,9 +476,9 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       const img = new Image();
       img.onload = () => {
         try {
-          const maxDim = 920;
-          let width = img.naturalWidth || 800;
-          let height = img.naturalHeight || 600;
+          const maxDim = 720;
+          let width = img.naturalWidth || img.width || 800;
+          let height = img.naturalHeight || img.height || 600;
           if (width > maxDim || height > maxDim) {
             if (width >= height) {
               height = Math.round((height * maxDim) / width);
@@ -493,9 +493,14 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (ctx) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.8));
-            return;
+            const jpegUrl = canvas.toDataURL('image/jpeg', 0.78);
+            if (jpegUrl && jpegUrl.startsWith('data:image/')) {
+              resolve(jpegUrl);
+              return;
+            }
           }
         } catch {
           // Fallback to rawDataUrl
@@ -506,7 +511,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       img.src = rawDataUrl;
     });
 
-  // Handle Multi-Photo File Upload (Stores uploaded photos on server and saves their compact URLs)
+  // Handle Multi-Photo File Upload (Keeps self-contained compressed JPEG data URLs so photos never 404 on Vercel or shared links)
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -526,13 +531,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   const compressedDataUrl = await compressImageDataUrl(
                     reader.result
                   );
-                  const storedImageUrl = await uploadDataUrlToServer(
-                    compressedDataUrl,
-                    'photo'
-                  );
+                  // Optionally persist backup copy on server without replacing self-contained compressedDataUrl
+                  void uploadDataUrlToServer(compressedDataUrl, 'photo');
                   resolve({
                     id: `upload-${Date.now()}-${index}`,
-                    imageUrl: storedImageUrl,
+                    imageUrl: compressedDataUrl,
                     caption:
                       file.name
                         .replace(/\.[^/.]+$/, '')
@@ -556,22 +559,32 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       );
 
       if (validNewMemories.length > 0) {
-        // If current memories are only the 4 default SVG scenes, replace them so only the birthday person's uploaded photos show
+        // If current memories are only default SVG scenes, replace them so the birthday person's uploaded photos take center stage
         const hasOnlyDefaultScenes =
           config.memories.length > 0 &&
-          config.memories.every((m) => m.id.startsWith('mem-'));
+          config.memories.every(
+            (m) =>
+              m.id.startsWith('mem-') ||
+              (typeof m.imageUrl === 'string' &&
+                m.imageUrl.startsWith('data:image/svg+xml'))
+          );
 
-        onChange({
+        const nextConfig: BirthdayConfig = {
           ...config,
           memories: hasOnlyDefaultScenes
             ? validNewMemories
             : [...config.memories, ...validNewMemories],
-        });
+          sections: {
+            ...config.sections,
+            showMemoriesGallery: true,
+          },
+        };
+        onChange(nextConfig);
         onJumpToPreviewStep('memories');
         showToast(
           validNewMemories.length === 1
-            ? `Uploaded "${validNewMemories[0].caption}" to Photo Gallery 📸`
-            : `Uploaded ${validNewMemories.length} photos to Photo Gallery 📸`
+            ? `Uploaded "${validNewMemories[0].caption}" — now showing in your website! 📸`
+            : `Uploaded ${validNewMemories.length} photos — now showing in your website! 📸`
         );
       }
     } finally {
@@ -653,17 +666,15 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   ) => {
     setIsUploadingMedia(true);
     try {
-      const storedUrl = await uploadDataUrlToServer(
-        croppedDataUrl,
-        'cropped-photo'
-      );
+      const compressedDataUrl = await compressImageDataUrl(croppedDataUrl);
+      void uploadDataUrlToServer(compressedDataUrl, 'cropped-photo');
       updateField(
         'memories',
         config.memories.map((m) =>
           m.id === memoryId
             ? {
                 ...m,
-                imageUrl: storedUrl,
+                imageUrl: compressedDataUrl,
                 caption: updatedCaption || m.caption,
               }
             : m
@@ -757,10 +768,6 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               };
               if (data.id) {
                 resolvedId = data.id;
-              }
-              if (data.config) {
-                resolvedConfig = normalizeBirthdayConfig(data.config);
-                onChange(resolvedConfig);
               }
             }
           }
@@ -1255,13 +1262,93 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               />
             </div>
 
+            {/* Quick Photo Upload & Preview Right Inside Tab 1 (Birthday Details) */}
+            <div className="bg-[#EAF7FF]/55 rounded-2xl p-4 border border-[#64C8FF]/60 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <span className="text-xs font-bold text-[#183247] block">
+                    Birthday Person&apos;s Photos 📸 (Shows on Milestone &amp; Memory Album)
+                  </span>
+                  <span className="text-[11px] text-[#183247]/70">
+                    Upload photos of {config.recipientName || 'the birthday star'} to display across your website.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isUploadingMedia}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3.5 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] disabled:opacity-60 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    {isUploadingMedia ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload Photos
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onTabChange('memories');
+                      onJumpToPreviewStep('memories');
+                    }}
+                    className="px-3 py-2 rounded-xl bg-white hover:bg-[#64C8FF]/25 text-[#183247] border border-[#64C8FF]/60 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Manage Album ({config.memories.length})
+                  </button>
+                </div>
+              </div>
+
+              {config.memories.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  {config.memories.slice(0, 4).map((mem) => (
+                    <div
+                      key={mem.id}
+                      className="group relative rounded-xl overflow-hidden border border-[#64C8FF]/60 bg-white aspect-[4/3]"
+                    >
+                      <img
+                        src={mem.imageUrl}
+                        alt={mem.caption}
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src = createMemorySceneDataUri(
+                            mem.scenePreset || 'sunset-hill'
+                          );
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-[#183247]/75 backdrop-blur-xs px-2 py-1 flex items-center justify-between gap-1">
+                        <span className="text-[10px] text-white font-semibold truncate">
+                          {mem.caption}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCropMemory(mem)}
+                          title="Crop or enhance photo"
+                          className="text-[10px] text-[#FFD84D] hover:underline font-bold shrink-0 cursor-pointer"
+                        >
+                          Crop
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Generate Birthday Website CTA */}
             <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#EAF7FF]/75 p-4 rounded-2xl border border-[#64C8FF]/60">
               <div className="text-xs text-[#183247]/80">
                 <strong className="text-[#168DCE] block font-display text-sm">
                   Ready to generate {config.recipientName && config.recipientName !== DEFAULT_RECIPIENT_PLACEHOLDER ? `${config.recipientName}'s` : 'your'} website?
                 </strong>
-                Updates all steps, letter, milestone &amp; shareable link according to your entered details.
+                Updates all steps, letter, milestone, photos &amp; shareable link according to your entered details.
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -1275,7 +1362,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     onChange(synced);
                     onSaveDraft();
                     await publishShareConfiguration(false);
-                    onJumpToPreviewStep('welcome');
+                    onJumpToPreviewStep('milestone');
                     showToast(
                       `Generated personalized birthday website for ${
                         synced.recipientName || 'your friend'
@@ -1296,6 +1383,25 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Shared Hidden Multi-Photo File Input (accessible from both Details and Memories tabs) */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handlePhotoUpload}
+          className="hidden"
+        />
+
+        {/* Shared Photo Crop & Visual Enhancement Modal */}
+        {editingCropMemory && (
+          <PhotoCropEditorModal
+            memory={editingCropMemory}
+            onClose={() => setEditingCropMemory(null)}
+            onSave={handleSaveCroppedPhoto}
+          />
         )}
 
         {/* TAB B: PHOTOS & MEMORIES */}
@@ -1325,14 +1431,6 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     Clear All Photos
                   </button>
                 )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                />
                 <button
                   type="button"
                   disabled={isUploadingMedia}
@@ -1519,15 +1617,6 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   </div>
                 ))}
               </div>
-            )}
-
-            {/* Photo Crop & Visual Enhancement Modal */}
-            {editingCropMemory && (
-              <PhotoCropEditorModal
-                memory={editingCropMemory}
-                onClose={() => setEditingCropMemory(null)}
-                onSave={handleSaveCroppedPhoto}
-              />
             )}
           </div>
         )}

@@ -291,7 +291,7 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
     setIsSaving(true);
     try {
       renderCanvas();
-      const croppedDataUrl = canvas.toDataURL('image/png', 0.92);
+      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
       await onSave(memory.id, croppedDataUrl, caption.trim() || memory.caption);
       onClose();
     } finally {

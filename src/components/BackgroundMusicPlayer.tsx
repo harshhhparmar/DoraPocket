@@ -74,11 +74,10 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
   }, [music.source, music.customAudioDataUrl, isPlaying, effectiveVolume]);
 
   // 2. Handle Built-In Synthesized Doraemon Melodies (Web Audio API loop)
-  // Also provides instant Doraemon cartoon melody accompaniment when 'youtube' is selected
-  // so music plays immediately even in browsers that restrict cross-origin iframe audio.
+  // Strictly only runs when one of the synth-* presets is explicitly selected,
+  // never when 'youtube' (Doraemon BGM) is active.
   useEffect(() => {
     const isSynthSource =
-      music.source === 'youtube' ||
       music.source === 'synth-dora-march' ||
       music.source === 'synth-music-box' ||
       music.source === 'synth-birthday-bell';
@@ -99,9 +98,8 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
       return;
     }
 
-    const presetKey =
-      music.source === 'youtube' ? 'synth-dora-march' : music.source;
-    const preset = MELODY_PRESETS[presetKey];
+    const preset = MELODY_PRESETS[music.source as keyof typeof MELODY_PRESETS];
+    if (!preset) return;
     let stepIndex = 0;
 
     const playStep = () => {
@@ -158,25 +156,53 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
     };
   }, [music.source, isPlaying, effectiveVolume]);
 
-  // 3. Control YouTube IFrame via postMessage API when play/pause/mute changes
+  // 3. Control YouTube IFrame via postMessage API when play/pause/mute changes or on first user gesture
   useEffect(() => {
-    if (music.source !== 'youtube' || !iframeRef.current?.contentWindow) return;
-    const win = iframeRef.current.contentWindow;
-    try {
-      const func = isPlaying ? 'playVideo' : 'pauseVideo';
-      win.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
-      win.postMessage(
-        JSON.stringify({
-          event: 'command',
-          func: 'setVolume',
-          args: [effectiveVolume],
-        }),
-        '*'
-      );
-    } catch {
-      // Ignore cross-origin postMessage errors
-    }
-  }, [music.source, isPlaying, effectiveVolume]);
+    if (music.source !== 'youtube') return;
+
+    const syncYouTubePlayback = () => {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      try {
+        const func = isPlaying ? 'playVideo' : 'pauseVideo';
+        win.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
+        win.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: isMuted || effectiveVolume === 0 ? 'mute' : 'unMute',
+            args: [],
+          }),
+          '*'
+        );
+        win.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: 'setVolume',
+            args: [effectiveVolume],
+          }),
+          '*'
+        );
+      } catch {
+        // Ignore cross-origin postMessage errors
+      }
+    };
+
+    syncYouTubePlayback();
+
+    const handleUserGesture = () => {
+      if (isPlaying) {
+        syncYouTubePlayback();
+      }
+    };
+
+    window.addEventListener('pointerdown', handleUserGesture, { passive: true });
+    window.addEventListener('keydown', handleUserGesture, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', handleUserGesture);
+      window.removeEventListener('keydown', handleUserGesture);
+    };
+  }, [music.source, isPlaying, effectiveVolume, isMuted]);
 
   const shortTrackLabel =
     music.source === 'youtube'

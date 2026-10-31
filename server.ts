@@ -146,13 +146,9 @@ function extractAndPersistEmbeddedMedia(
     cloned.memories = cloned.memories.map((mem: Record<string, unknown>, idx: number) => {
       if (mem && typeof mem.imageUrl === 'string') {
         if (mem.imageUrl.startsWith('data:') && mem.imageUrl.includes(';base64,')) {
-          const storedUrl = persistDataUrlToUploadFile(mem.imageUrl, `photo-${idx + 1}`);
-          if (storedUrl) {
-            return {
-              ...mem,
-              imageUrl: storedUrl,
-            };
-          }
+          // Persist backup file to /uploads/ while preserving the self-contained compressed data URL
+          persistDataUrlToUploadFile(mem.imageUrl, `photo-${idx + 1}`);
+          return mem;
         } else if (mem.imageUrl.startsWith('/api/uploads/')) {
           return {
             ...mem,
