@@ -416,7 +416,7 @@ async function startServer() {
       // Honor the client's existing short ID if valid so links never become orphaned
       const validRequestedId =
         typeof requestedId === 'string' &&
-        /^[a-zA-Z0-9_-]{4,32}$/.test(requestedId)
+        /^[a-zA-Z0-9_-]{2,48}$/.test(requestedId)
           ? requestedId
           : null;
 
@@ -440,7 +440,7 @@ async function startServer() {
 
       res.status(201).json({
         id: shortId,
-        sharePath: `/?s=${shortId}`,
+        sharePath: `/${shortId}`,
         config: cleanedConfig,
         savedToSupabase,
         createdAt: record.createdAt,
@@ -458,7 +458,7 @@ async function startServer() {
   const handleGetShare = async (rawIdInput: string, res: express.Response) => {
     try {
       const rawId = (rawIdInput || '').trim();
-      if (!/^[a-zA-Z0-9_-]{3,32}$/.test(rawId)) {
+      if (!/^[a-zA-Z0-9_-]{2,48}$/.test(rawId)) {
         res.status(400).json({ error: 'Invalid share ID format.' });
         return;
       }

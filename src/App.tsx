@@ -15,7 +15,7 @@ import {
   STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
   decodeShareHashPayload,
-  extractShareIdFromSearch,
+  extractShareIdFromLocation,
   normalizeBirthdayConfig,
   purgeLegacyStorage,
 } from './utils/birthdayLogic';
@@ -37,7 +37,10 @@ type MobileStudioPane = 'edit' | 'preview';
 export default function App() {
   const [sharedId, setSharedId] = useState<string | null>(() =>
     typeof window !== 'undefined'
-      ? extractShareIdFromSearch(window.location.search)
+      ? extractShareIdFromLocation(
+          window.location.pathname,
+          window.location.search
+        )
       : null
   );
   const skipNextRemoteFetchRef = React.useRef(false);
@@ -109,10 +112,13 @@ export default function App() {
     null
   );
 
-  // Sync URL popstate so browser Back/Forward works seamlessly with short share links
+  // Sync URL popstate so browser Back/Forward works seamlessly with clean share links
   useEffect(() => {
     const handlePopState = () => {
-      const nextId = extractShareIdFromSearch(window.location.search);
+      const nextId = extractShareIdFromLocation(
+        window.location.pathname,
+        window.location.search
+      );
       setSharedId(nextId);
       if (nextId) {
         setViewMode('experience');
@@ -623,7 +629,7 @@ export default function App() {
                       window.history.pushState(
                         {},
                         '',
-                        `/?s=${encodeURIComponent(targetId)}`
+                        `/${encodeURIComponent(targetId)}`
                       );
                     } catch {
                       // Ignore history/storage restriction
@@ -683,7 +689,6 @@ export default function App() {
               <div className="text-xs font-semibold text-[#168DCE]">
                 🎂 Viewing {config.recipientName || 'Birthday'}&apos;s Interactive
                 Birthday Experience
-                {sharedId ? ` (Shared Surprise #${sharedId})` : ''}
               </div>
               <div className="flex items-center gap-2.5">
                 <button

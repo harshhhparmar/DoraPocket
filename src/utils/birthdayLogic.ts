@@ -505,11 +505,11 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
   };
 }
 
-export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_id_v3';
+export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_slug_v4';
 
 /**
- * Purges legacy localStorage keys (including any cached "Svetang" or "Nobita" examples)
- * so the website never shows hardcoded details or pictures of a previous example person.
+ * Purges legacy localStorage keys (including any cached "Svetang" or "Nobita" examples
+ * and old random 6-character share IDs) so the website always uses clean, readable links.
  */
 export function purgeLegacyStorage(): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
@@ -519,6 +519,7 @@ export function purgeLegacyStorage(): void {
       'dorapocket_birthday_draft_v2',
       'dorapocket_share_id_v1',
       'dorapocket_share_id_v2',
+      'dorapocket_share_id_v3',
       'dorapocket_share_cache_dorav4amjv',
     ];
     for (const k of legacyKeys) {
@@ -710,25 +711,98 @@ export function getPersonalizedViewConfig(config: BirthdayConfig): BirthdayConfi
   };
 }
 
+const RESERVED_ROUTE_SEGMENTS = new Set([
+  '',
+  'index.html',
+  'api',
+  'uploads',
+  'shares',
+  'assets',
+  'public',
+  'src',
+  'studio',
+  'experience',
+  'landing',
+  'favicon.ico',
+  'robots.txt',
+  'manifest.json',
+]);
+
 /**
- * Checks whether a stored share ID is already in the ultra-short 6-character format.
+ * Checks whether a stored share slug is a clean, human-readable birthday slug
+ * (e.g. "riya", "harsh", "birthday") and not an old random gibberish string.
  */
 export function isCleanShortShareId(id: string | null | undefined): boolean {
   if (!id || typeof id !== 'string') return false;
-  return /^[a-z0-9]{5,8}$/i.test(id.trim()) && !id.toLowerCase().startsWith('dora');
+  const trimmed = id.trim().toLowerCase();
+  if (RESERVED_ROUTE_SEGMENTS.has(trimmed)) return false;
+  if (trimmed.startsWith('dorav4')) return false;
+  // Reject old 6-character random alphanumeric strings that mix digits and random consonants (e.g. "7x9k2m")
+  if (/^[a-z0-9]{6}$/.test(trimmed) && /\d/.test(trimmed) && /[a-z]/.test(trimmed)) {
+    return false;
+  }
+  return /^[a-z0-9][a-z0-9_-]{1,30}$/.test(trimmed);
 }
 
 /**
- * Generates an ultra-short 6-character alphanumeric ID (e.g., "7x9k2m")
- * so shareable URLs stay as short and clean as possible (/?s=7x9k2m).
+ * Converts a birthday person's name into a clean, human-readable URL slug
+ * (e.g. "Riya" -> "riya", "Aarav Sharma" -> "aarav-sharma", or "birthday" by default).
  */
-export function generateClientShareId(_recipientName?: string): string {
-  const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
-  let shortId = '';
-  for (let i = 0; i < 6; i++) {
-    shortId += alphabet[Math.floor(Math.random() * alphabet.length)];
+export function generateClientShareId(recipientName?: string): string {
+  const raw = (recipientName || '').trim();
+  const lower = raw.toLowerCase();
+  if (
+    !raw ||
+    lower === DEFAULT_RECIPIENT_PLACEHOLDER.toLowerCase() ||
+    lower === 'friend' ||
+    lower === 'untitled' ||
+    lower === 'birthday'
+  ) {
+    return 'birthday';
   }
-  return shortId;
+  const slug = lower
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 28)
+    .replace(/-+$/g, '');
+  if (!slug || slug.length < 2 || RESERVED_ROUTE_SEGMENTS.has(slug)) {
+    return 'birthday';
+  }
+  return slug;
+}
+
+/**
+ * Sanitizes a user-edited custom URL slug so it stays clean and URL-safe.
+ */
+export function sanitizeShareSlug(input: string): string {
+  return (input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 30);
+}
+
+/**
+ * Formats the domain origin into a clean, compact visual label for the Share Link bar
+ * so long Cloud Run preview hosts or Vercel deployment hashes never look weird or cut off.
+ */
+export function formatCleanDisplayOrigin(origin: string): string {
+  const clean = (origin || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '');
+  if (!clean) return 'dorapocket.app';
+  if (clean.endsWith('.run.app') && clean.startsWith('ais-')) {
+    return 'dorapocket.app';
+  }
+  // Shorten long Vercel branch/deployment preview subdomains (e.g. dora-pocket-2a3xt1...-harsh-s-projects.vercel.app)
+  if (clean.endsWith('.vercel.app') && clean.length > 30) {
+    const firstPart = clean.split('.')[0] || '';
+    const projectBase = firstPart.split('--')[0]?.split('-git-')[0] || 'dora-pocket';
+    const trimmedBase = projectBase.replace(/-+$/, '').slice(0, 20) || 'dora-pocket';
+    return `${trimmedBase}.vercel.app`;
+  }
+  return clean;
 }
 
 /**
@@ -805,29 +879,20 @@ export function decodeShareHashPayload(
 }
 
 /**
- * Builds a compact, Nginx-safe short-ID share URL (e.g., https://example.com/?s=dora7x9k).
- * Automatically converts private AI Studio dev preview origins (https://ais-dev-...)
- * to the publicly accessible Shared App origin (https://ais-pre-...) so shared links
- * open in any browser tab without iframe authentication errors.
- * When `configForHash` is provided, appends `#d=<encodedPayload>` in the URL fragment
- * (which is never sent to HTTP servers/Nginx, avoiding 414 errors while ensuring
- * cross-device / Vercel stateless link reliability).
+ * Builds a clean, human-readable path-based share URL (e.g., https://example.com/riya)
+ * with zero query string clutter (?s=...) or hash bloat.
  */
 export function buildCompactShareUrl(
   origin: string,
-  pathname: string,
+  _pathname: string,
   shortId: string,
   configForHash?: BirthdayConfig
 ): string {
   const publicOrigin = (origin || '')
     .replace(/\/+$/, '')
     .replace(/^https:\/\/ais-dev-/, 'https://ais-pre-');
-  const cleanPath = pathname && pathname.startsWith('/') ? pathname : '/';
-  const safeId = (shortId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!safeId) {
-    return `${publicOrigin}${cleanPath}`;
-  }
-  const base = `${publicOrigin}${cleanPath}?s=${encodeURIComponent(safeId)}`;
+  const safeId = sanitizeShareSlug(shortId).replace(/-+$/g, '') || 'birthday';
+  const base = `${publicOrigin}/${encodeURIComponent(safeId)}`;
   if (configForHash) {
     const hashData = encodeShareHashPayload(configForHash);
     if (hashData) {
@@ -844,8 +909,56 @@ export function extractShareIdFromSearch(search: string): string | null {
   if (!search || typeof search !== 'string') return null;
   const params = new URLSearchParams(search);
   const raw = (params.get('s') || params.get('id') || '').trim();
-  if (/^[a-zA-Z0-9_-]{3,32}$/.test(raw)) {
+  if (/^[a-zA-Z0-9_-]{2,48}$/.test(raw) && !RESERVED_ROUTE_SEGMENTS.has(raw.toLowerCase())) {
     return raw;
+  }
+  return null;
+}
+
+/**
+ * Extracts a share slug from either a clean URL path (e.g. /riya, /b/riya, /gift/riya)
+ * or legacy query string (?s=riya or ?id=riya).
+ */
+export function extractShareIdFromLocation(
+  pathname: string,
+  search: string
+): string | null {
+  const fromSearch = extractShareIdFromSearch(search);
+  if (fromSearch) {
+    return fromSearch;
+  }
+
+  if (!pathname || typeof pathname !== 'string') return null;
+  const segments = pathname
+    .split('/')
+    .map((s) => {
+      try {
+        return decodeURIComponent(s.trim());
+      } catch {
+        return s.trim();
+      }
+    })
+    .filter(Boolean);
+
+  if (segments.length === 0) return null;
+
+  const candidate =
+    segments.length === 2 &&
+    (segments[0].toLowerCase() === 'b' ||
+      segments[0].toLowerCase() === 'gift' ||
+      segments[0].toLowerCase() === 's')
+      ? segments[1]
+      : segments.length === 1
+        ? segments[0]
+        : null;
+
+  if (!candidate) return null;
+  const lower = candidate.toLowerCase();
+  if (RESERVED_ROUTE_SEGMENTS.has(lower) || lower.includes('.')) {
+    return null;
+  }
+  if (/^[a-zA-Z0-9_-]{2,48}$/.test(candidate)) {
+    return candidate;
   }
   return null;
 }

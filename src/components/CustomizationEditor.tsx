@@ -21,11 +21,13 @@ import {
   buildCompactShareUrl,
   createMemorySceneDataUri,
   extractYouTubeVideoId,
+  formatCleanDisplayOrigin,
   generateClientShareId,
   generateStandaloneBirthdayHtml,
   isCleanShortShareId,
   moveItemInArray,
   normalizeBirthdayConfig,
+  sanitizeShareSlug,
   syncBirthdayConfigWithDetails,
   validateBirthdayDetails,
 } from '../utils/birthdayLogic';
@@ -103,23 +105,29 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [customImageUrl, setCustomImageUrl] = useState('');
   const [customImageCaption, setCustomImageCaption] = useState('');
 
-  // Short-ID Share Link & Upload state
+  // Clean Share Slug & Upload state
   const [shareId, setShareId] = useState<string | null>(() => {
+    const nameSlug = generateClientShareId(config.recipientName);
     if (typeof window !== 'undefined') {
       try {
         const stored = window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
         if (stored && isCleanShortShareId(stored)) {
+          // If recipientName is customized, prefer matching slug unless stored is already custom
+          if (nameSlug !== 'birthday' && stored === 'birthday') {
+            window.localStorage.setItem(STORAGE_SHARE_ID_KEY, nameSlug);
+            return nameSlug;
+          }
           return stored;
         }
-        const freshId = generateClientShareId(config.recipientName);
-        window.localStorage.setItem(STORAGE_SHARE_ID_KEY, freshId);
-        return freshId;
+        window.localStorage.setItem(STORAGE_SHARE_ID_KEY, nameSlug);
+        return nameSlug;
       } catch {
-        return generateClientShareId(config.recipientName);
+        return nameSlug;
       }
     }
-    return generateClientShareId(config.recipientName);
+    return nameSlug;
   });
+  const [isCustomSlug, setIsCustomSlug] = useState(false);
   const [isPublishingShare, setIsPublishingShare] = useState(false);
   const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
   const [shareErrorMsg, setShareErrorMsg] = useState<string | null>(null);
@@ -127,6 +135,15 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [editingCropMemory, setEditingCropMemory] = useState<PhotoMemory | null>(
     null
   );
+
+  // Automatically keep the share slug aligned with the birthday person's name unless manually customized
+  useEffect(() => {
+    if (isCustomSlug) return;
+    const nextSlug = generateClientShareId(config.recipientName);
+    if (nextSlug && nextSlug !== shareId) {
+      setShareId(nextSlug);
+    }
+  }, [config.recipientName, isCustomSlug]);
 
   // Keep the active shareId cache in localStorage and cloud backend synced silently with every user edit
   useEffect(() => {
@@ -805,23 +822,45 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
         );
 
         if (copyToClipboard) {
+          let copiedOk = false;
           try {
-            await navigator.clipboard.writeText(compactDisplayUrl);
-            setCopiedLink(true);
-            setTimeout(() => setCopiedLink(false), 3200);
-            setShareSuccessMsg(
-              `Short link copied (${compactDisplayUrl})! 🎉`
-            );
-            showToast('Short share link copied to clipboard! 🔗');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(compactDisplayUrl);
+              copiedOk = true;
+            }
           } catch {
-            setShareSuccessMsg(
-              `Short link ready (${compactDisplayUrl}) — copy it above to share! 🎉`
-            );
-            showToast('Short share link ready! 🔗');
+            copiedOk = false;
           }
+
+          if (!copiedOk && typeof document !== 'undefined') {
+            try {
+              const tempArea = document.createElement('textarea');
+              tempArea.value = compactDisplayUrl;
+              tempArea.setAttribute('readonly', '');
+              tempArea.style.position = 'fixed';
+              tempArea.style.top = '-9999px';
+              tempArea.style.opacity = '0';
+              document.body.appendChild(tempArea);
+              tempArea.focus();
+              tempArea.select();
+              copiedOk = document.execCommand('copy');
+              document.body.removeChild(tempArea);
+            } catch {
+              copiedOk = false;
+            }
+          }
+
+          setCopiedLink(true);
+          setTimeout(() => setCopiedLink(false), 3200);
+          setShareSuccessMsg(
+            copiedOk
+              ? `Link copied (/${resolvedId})! Ready to share 🎉`
+              : `Link ready (/${resolvedId}) — tap to share 🎉`
+          );
+          showToast('Share link copied to clipboard! 🔗');
         } else {
           setShareSuccessMsg(
-            `Short link synced (?s=${resolvedId}) for ${resolvedConfig.recipientName || 'Birthday Star'} ✨`
+            `Synced to /${resolvedId} for ${resolvedConfig.recipientName || 'Birthday Star'} ✨`
           );
         }
 
@@ -947,8 +986,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           shareId
         )
       : typeof window !== 'undefined'
-        ? `${window.location.origin}${window.location.pathname}?s=...`
+        ? `${window.location.origin}/birthday`
         : '';
+
+  const cleanDisplayOrigin =
+    typeof window !== 'undefined'
+      ? formatCleanDisplayOrigin(window.location.origin)
+      : 'dorapocket.app';
 
   return (
     <div className="bg-white rounded-[24px] sm:rounded-[28px] border-2 border-[#64C8FF]/60 shadow-[0_14px_40px_rgba(22,141,206,0.09)] overflow-hidden flex flex-col">
@@ -2236,11 +2280,11 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               </p>
             </div>
 
-            {/* 1. Compact Short-ID Shareable Birthday Website Link */}
+            {/* 1. Clean Path Shareable Birthday Website Link */}
             <div className="p-4 sm:p-5 rounded-2xl bg-[#EAF7FF] border border-[#64C8FF] space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#168DCE]">
-                  Short Shareable Link (Opens Fullscreen Experience)
+                  Shareable Birthday Website Link
                 </span>
                 <div className="flex items-center gap-3">
                   <button
@@ -2268,17 +2312,23 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={
-                    isPublishingShare && !shareId
-                      ? 'Generating short link...'
-                      : shareUrlPreview
-                  }
-                  aria-label="Shareable Birthday Website URL"
-                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-white border border-[#64C8FF] text-xs sm:text-sm text-[#183247] font-mono-num select-all"
-                />
+                <div className="flex-1 flex items-center rounded-xl bg-white border border-[#64C8FF] overflow-hidden focus-within:border-[#168DCE] focus-within:ring-2 focus-within:ring-[#64C8FF]/40">
+                  <span className="pl-3.5 pr-1.5 py-2.5 bg-[#EAF7FF]/60 border-r border-[#64C8FF]/40 text-xs sm:text-sm font-medium text-[#183247]/70 whitespace-nowrap select-none">
+                    {cleanDisplayOrigin}/
+                  </span>
+                  <input
+                    type="text"
+                    value={shareId || ''}
+                    onChange={(e) => {
+                      const nextSlug = sanitizeShareSlug(e.target.value);
+                      setIsCustomSlug(true);
+                      setShareId(nextSlug || 'birthday');
+                    }}
+                    placeholder="birthday"
+                    aria-label="Shareable Birthday Website URL"
+                    className="flex-1 min-w-[90px] px-2.5 py-2.5 bg-white text-xs sm:text-sm font-bold text-[#168DCE] focus:outline-none"
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={handleCopyShareLink}
@@ -2311,7 +2361,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   className="flex items-center gap-2 text-xs font-semibold text-[#168DCE] bg-white/80 px-3 py-2 rounded-xl border border-[#64C8FF]/50"
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  <span>Syncing your short birthday link...</span>
+                  <span>Syncing your birthday link...</span>
                 </div>
               )}
 
@@ -2337,7 +2387,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                         }}
                         className="text-[#168DCE] font-bold hover:underline whitespace-nowrap cursor-pointer"
                       >
-                        Open Short Link →
+                        Open Link →
                       </button>
                       <a
                         href={shareUrlPreview}
@@ -2364,12 +2414,12 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               )}
 
               <p className="text-[11px] text-[#183247]/70">
-                Your custom text, wishes, uploaded photos, and layout are synced to
-                this short link (
-                <code className="font-semibold text-[#168DCE]">
-                  ?s={shareId || '...'}
-                </code>
-                ) so it opens cleanly on any phone or browser.
+                Clean link path:{' '}
+                <code className="font-bold text-[#168DCE]">
+                  /{shareId || 'birthday'}
+                </code>{' '}
+                · Automatically uses the birthday person&apos;s name, or you can
+                type a custom link name above.
               </p>
             </div>
 

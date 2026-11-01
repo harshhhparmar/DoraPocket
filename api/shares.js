@@ -166,9 +166,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Valid birthday config required.' });
     }
     const shortId =
-      typeof requestedId === 'string' && /^[a-zA-Z0-9_-]{3,32}$/.test(requestedId)
+      typeof requestedId === 'string' && /^[a-zA-Z0-9_-]{2,48}$/.test(requestedId)
         ? requestedId
-        : Math.random().toString(36).slice(2, 8);
+        : 'birthday';
 
     const nowIso = new Date().toISOString();
     const record = {
@@ -184,7 +184,7 @@ export default async function handler(req, res) {
 
     return res.status(201).json({
       id: shortId,
-      sharePath: `/?s=${shortId}`,
+      sharePath: `/${shortId}`,
       config: birthdayConfig,
       savedToSupabase,
       createdAt: record.createdAt,
