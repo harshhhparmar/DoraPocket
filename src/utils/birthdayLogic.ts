@@ -711,25 +711,24 @@ export function getPersonalizedViewConfig(config: BirthdayConfig): BirthdayConfi
 }
 
 /**
- * Generates a unique, compact short ID on the client (e.g., "dora-aarav-8x4k9m")
- * so every new birthday person gets their own fresh share link and never collides
- * with a previously created example.
+ * Checks whether a stored share ID is already in the ultra-short 6-character format.
  */
-export function generateClientShareId(recipientName?: string): string {
-  const raw =
-    recipientName && recipientName !== DEFAULT_RECIPIENT_PLACEHOLDER
-      ? recipientName
-      : 'bday';
-  const cleanSlug = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '')
-    .slice(0, 8);
+export function isCleanShortShareId(id: string | null | undefined): boolean {
+  if (!id || typeof id !== 'string') return false;
+  return /^[a-z0-9]{5,8}$/i.test(id.trim()) && !id.toLowerCase().startsWith('dora');
+}
+
+/**
+ * Generates an ultra-short 6-character alphanumeric ID (e.g., "7x9k2m")
+ * so shareable URLs stay as short and clean as possible (/?s=7x9k2m).
+ */
+export function generateClientShareId(_recipientName?: string): string {
   const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
-  let suffix = '';
+  let shortId = '';
   for (let i = 0; i < 6; i++) {
-    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+    shortId += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
-  return `dora${cleanSlug ? `-${cleanSlug}` : ''}-${suffix}`;
+  return shortId;
 }
 
 /**

@@ -216,7 +216,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
             : music.trackTitle || 'Custom Audio';
 
   return (
-    <div className="relative flex items-center gap-1.5">
+    <div className="relative flex items-center gap-1 sm:gap-1.5">
       {/* Corner Play / Pause (On / Off) Music Toggle Button */}
       <button
         type="button"
@@ -230,7 +230,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
             ? `Music is Playing (${music.trackTitle}) — Click to Turn Off`
             : `Music is Off (${music.trackTitle}) — Click to Play`
         }
-        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer border ${
+        className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer border ${
           isPlaying
             ? 'bg-[#FFD84D] text-[#183247] border-[#183247]/30 shadow-xs'
             : 'bg-[#EAF7FF] hover:bg-[#64C8FF]/30 text-[#183247] border-[#64C8FF]/60'
@@ -241,7 +241,10 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
         ) : (
           <Play className="w-3.5 h-3.5 fill-current shrink-0" />
         )}
-        <span>
+        <span className="sm:hidden">
+          {isPlaying ? '🎵 BGM' : '🔇 Off'}
+        </span>
+        <span className="hidden sm:inline">
           {isPlaying
             ? `🎵 Music On · ${shortTrackLabel}`
             : `🔇 Music Off · ${shortTrackLabel}`}
@@ -286,7 +289,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({
         <div
           className={
             showVideoPopover
-              ? 'absolute right-0 top-11 z-40 w-72 bg-white rounded-2xl border-2 border-[#64C8FF] shadow-xl p-2.5 space-y-2'
+              ? 'absolute right-0 top-11 z-40 w-[min(18rem,calc(100vw-2rem))] bg-white rounded-2xl border-2 border-[#64C8FF] shadow-xl p-2.5 space-y-2'
               : 'sr-only pointer-events-none w-1 h-1 overflow-hidden'
           }
         >

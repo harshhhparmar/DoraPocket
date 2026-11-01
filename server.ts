@@ -58,17 +58,16 @@ function writeSharesStore(
 function generateUniqueShortId(existingStore: Record<string, StoredShareRecord>): string {
   const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
   for (let attempt = 0; attempt < 20; attempt++) {
-    let suffix = '';
+    let candidate = '';
     const bytes = crypto.randomBytes(6);
     for (let i = 0; i < 6; i++) {
-      suffix += alphabet[bytes[i] % alphabet.length];
+      candidate += alphabet[bytes[i] % alphabet.length];
     }
-    const candidate = `dora${suffix}`;
     if (!existingStore[candidate]) {
       return candidate;
     }
   }
-  return `dora${Date.now().toString(36)}`;
+  return Date.now().toString(36).slice(-6);
 }
 
 const MIME_TO_EXT: Record<string, string> = {

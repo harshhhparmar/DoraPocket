@@ -141,20 +141,20 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
 
   const layoutContainerStyles: Record<BirthdayConfig['appearance']['layout'], string> = {
     'classic-pocket':
-      'bg-white border-2 border-[#64C8FF]/60 shadow-[0_18px_48px_rgba(22,141,206,0.12)] rounded-[32px]',
+      'bg-white border-2 border-[#64C8FF]/60 shadow-[0_18px_48px_rgba(22,141,206,0.12)] rounded-[24px] sm:rounded-[32px]',
     'anywhere-storybook':
-      'bg-gradient-to-b from-white via-white to-[#EAF7FF] border-2 border-[#FF85B3]/60 shadow-[0_18px_48px_rgba(24,50,71,0.12)] rounded-[32px]',
+      'bg-gradient-to-b from-white via-white to-[#EAF7FF] border-2 border-[#FF85B3]/60 shadow-[0_18px_48px_rgba(24,50,71,0.12)] rounded-[24px] sm:rounded-[32px]',
     'starlight-cloud':
-      'bg-white/95 border-2 border-[#FFD84D] shadow-[0_18px_48px_rgba(22,141,206,0.14)] rounded-[32px]',
+      'bg-white/95 border-2 border-[#FFD84D] shadow-[0_18px_48px_rgba(22,141,206,0.14)] rounded-[24px] sm:rounded-[32px]',
   };
 
   const progressPercentage = Math.round(((currentStepIndex + 1) / steps.length) * 100);
 
   return (
     <div
-      className={`w-full flex flex-col justify-between transition-all duration-200 ${
+      className={`w-full flex flex-col justify-between transition-all duration-200 overflow-hidden ${
         layoutContainerStyles[config.appearance.layout]
-      } ${isFullscreen ? 'min-h-[68vh] max-w-4xl mx-auto p-6 sm:p-8' : 'min-h-[540px] p-5 sm:p-6'}`}
+      } ${isFullscreen ? 'min-h-[68vh] max-w-4xl mx-auto p-4 sm:p-8' : 'min-h-[500px] sm:min-h-[540px] p-4 sm:p-6'}`}
     >
       {/* Top Microsite Header: Step Progress & Corner Music Player + Controls */}
       <div className="space-y-3 pb-4 border-b border-[#EAF7FF]">
@@ -912,12 +912,12 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
       </div>
 
       {/* Bottom Step Navigation Footer */}
-      <div className="pt-4 border-t border-[#EAF7FF] flex items-center justify-between gap-4">
+      <div className="pt-4 border-t border-[#EAF7FF] flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={handlePrev}
           disabled={currentStepIndex === 0}
-          className="px-4 py-2.5 rounded-xl bg-[#EAF7FF] hover:bg-[#64C8FF]/30 disabled:opacity-40 disabled:pointer-events-none text-[#183247] font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="px-4 py-2.5 min-h-[44px] rounded-xl bg-[#EAF7FF] hover:bg-[#64C8FF]/30 disabled:opacity-40 disabled:pointer-events-none text-[#183247] font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
           Previous
@@ -932,7 +932,7 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
           <button
             type="button"
             onClick={handleNext}
-            className={`px-5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-5 py-2.5 min-h-[44px] rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0 cursor-pointer ${
               accentButtonStyles[config.appearance.accent]
             }`}
           >
@@ -943,7 +943,7 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
           <button
             type="button"
             onClick={handleReplay}
-            className="px-5 py-2.5 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-5 py-2.5 min-h-[44px] rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <RotateCcw className="w-4 h-4" />
             Start Over

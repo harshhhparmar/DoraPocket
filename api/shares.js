@@ -166,9 +166,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Valid birthday config required.' });
     }
     const shortId =
-      typeof requestedId === 'string' && /^[a-zA-Z0-9_-]{4,32}$/.test(requestedId)
+      typeof requestedId === 'string' && /^[a-zA-Z0-9_-]{3,32}$/.test(requestedId)
         ? requestedId
-        : `dora${Math.random().toString(36).slice(2, 8)}`;
+        : Math.random().toString(36).slice(2, 8);
 
     const nowIso = new Date().toISOString();
     const record = {

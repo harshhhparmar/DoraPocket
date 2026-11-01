@@ -10,9 +10,11 @@ import {
   extractShareIdFromSearch,
   extractYouTubeVideoId,
   formatOrdinalAge,
+  generateClientShareId,
   generateStandaloneBirthdayHtml,
   getActiveExperienceSteps,
   getAspectRatioDimensions,
+  isCleanShortShareId,
   moveItemInArray,
   normalizeBirthdayConfig,
   syncBirthdayConfigWithDetails,
@@ -88,22 +90,27 @@ test('validateBirthdayDetails catches empty required fields and invalid ages', (
   assert.ok(invalidResult.errors.senderName);
 });
 
-test('buildCompactShareUrl and extractShareIdFromSearch keep share links short, public (ais-pre), and Nginx-414-safe', () => {
-  const url = buildCompactShareUrl('https://example.com', '/', 'dora7x9k2m');
-  assert.equal(url, 'https://example.com/?s=dora7x9k2m');
-  assert.ok(url.length < 60, 'Compact share URL must stay well under Nginx 414 limits');
+test('buildCompactShareUrl, generateClientShareId, and extractShareIdFromSearch keep share links ultra-short and clean', () => {
+  const generatedId = generateClientShareId('Aarav');
+  assert.equal(generatedId.length, 6);
+  assert.equal(isCleanShortShareId(generatedId), true);
+  assert.equal(isCleanShortShareId('dora-birthday-8x4k9m'), false);
+
+  const url = buildCompactShareUrl('https://example.com', '/', generatedId);
+  assert.equal(url, `https://example.com/?s=${generatedId}`);
+  assert.ok(url.length <= 32, 'Ultra-short share URL must be clean and compact');
 
   const publicUrl = buildCompactShareUrl(
     'https://ais-dev-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app',
     '/',
-    'dora88xy12'
+    '7x9k2m'
   );
   assert.equal(
     publicUrl,
-    'https://ais-pre-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app/?s=dora88xy12'
+    'https://ais-pre-4qpu643va4b7j6np4mizm4-791370765326.asia-east1.run.app/?s=7x9k2m'
   );
 
-  assert.equal(extractShareIdFromSearch('?s=dora7x9k2m'), 'dora7x9k2m');
+  assert.equal(extractShareIdFromSearch('?s=7x9k2m'), '7x9k2m');
   assert.equal(extractShareIdFromSearch('?id=dora99abc'), 'dora99abc');
   assert.equal(extractShareIdFromSearch('?mode=studio'), null);
 });

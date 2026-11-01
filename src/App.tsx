@@ -15,7 +15,6 @@ import {
   STORAGE_SHARE_ID_KEY,
   applyCharacterPreset,
   decodeShareHashPayload,
-  encodeShareHashPayload,
   extractShareIdFromSearch,
   normalizeBirthdayConfig,
   purgeLegacyStorage,
@@ -249,7 +248,7 @@ export default function App() {
         }
       } else {
         setSharedSurpriseError(
-          `Could not find birthday surprise link "${sharedId}". Make sure the SQL query has been run in your Supabase SQL Editor or re-copy the share link.`
+          `Could not find birthday surprise link "${sharedId}". Please check the link or create a new birthday surprise.`
         );
       }
       setIsLoadingSharedSurprise(false);
@@ -325,8 +324,8 @@ export default function App() {
       <ConfettiOverlay active={confettiActive} />
 
       {/* Strict 3-Zone Top Bar Contract */}
-      <header className="relative z-20 bg-white/90 backdrop-blur-md border-b border-[#64C8FF]/45 px-5 sm:px-8 py-3.5">
-        <div className="max-w-[1380px] mx-auto flex items-center justify-between gap-8">
+      <header className="relative z-20 bg-white/90 backdrop-blur-md border-b border-[#64C8FF]/45 px-4 sm:px-8 py-3">
+        <div className="max-w-[1380px] mx-auto flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Single Text Element Wordmark */}
           <a
             href="#top"
@@ -334,7 +333,7 @@ export default function App() {
               e.preventDefault();
               setViewMode('landing');
             }}
-            className="font-display text-xl font-bold tracking-tight text-[#183247] hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0"
+            className="font-display text-lg sm:text-xl font-bold tracking-tight text-[#183247] hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0"
           >
             DoraPocket 🔔
           </a>
@@ -402,30 +401,93 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setViewMode('studio')}
-                className="px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
+                className="px-3.5 sm:px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Create Birthday Website 🎂
+                Create Website 🎂
               </button>
             ) : viewMode === 'studio' ? (
               <button
                 type="button"
                 onClick={() => setViewMode('experience')}
-                className="px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
+                className="px-3.5 sm:px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Explore Fullscreen ✨
+                Fullscreen ✨
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setViewMode('studio')}
-                className="px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
+                className="px-3.5 sm:px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Back to Editor Studio
+                Edit Studio ✏️
               </button>
             )}
           </div>
         </div>
       </header>
+
+      {/* Mobile Quick Navigation Bar (< md screens) */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="md:hidden relative z-20 bg-white/95 border-b border-[#64C8FF]/40 px-3 py-1.5"
+      >
+        <div className="grid grid-cols-4 gap-1 max-w-md mx-auto">
+          <button
+            type="button"
+            onClick={() => setViewMode('landing')}
+            className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
+              viewMode === 'landing'
+                ? 'bg-[#EAF7FF] text-[#168DCE] font-bold'
+                : 'text-[#183247]/75 hover:text-[#183247]'
+            }`}
+          >
+            Home
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('studio');
+              setMobilePane('edit');
+              if (activeEditorTab === 'share') {
+                setActiveEditorTab('details');
+              }
+            }}
+            className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
+              viewMode === 'studio' && activeEditorTab !== 'share'
+                ? 'bg-[#EAF7FF] text-[#168DCE] font-bold'
+                : 'text-[#183247]/75 hover:text-[#183247]'
+            }`}
+          >
+            Studio
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('experience')}
+            className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
+              viewMode === 'experience'
+                ? 'bg-[#EAF7FF] text-[#168DCE] font-bold'
+                : 'text-[#183247]/75 hover:text-[#183247]'
+            }`}
+          >
+            Experience
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('studio');
+              setMobilePane('edit');
+              setActiveEditorTab('share');
+            }}
+            className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
+              viewMode === 'studio' && activeEditorTab === 'share'
+                ? 'bg-[#FFD84D]/80 text-[#183247] font-bold'
+                : 'text-[#183247]/75 hover:text-[#183247]'
+            }`}
+          >
+            Share 🔗
+          </button>
+        </div>
+      </nav>
 
       {/* Main Content Area */}
       <main className="relative z-10 flex-1">
@@ -463,58 +525,66 @@ export default function App() {
 
         {/* VIEW 2: CUSTOMIZATION STUDIO + LIVE PREVIEW */}
         {viewMode === 'studio' && (
-          <section className="max-w-[1380px] mx-auto px-4 sm:px-8 py-6 sm:py-8 space-y-5">
+          <section className="max-w-[1380px] mx-auto px-3.5 sm:px-8 py-4 sm:py-8 space-y-4 sm:space-y-5">
             {/* Studio Workspace Toolbar */}
-            <div className="bg-white rounded-2xl border border-[#64C8FF]/50 px-5 py-3.5 flex flex-wrap items-center justify-between gap-4 shadow-xs">
-              <div className="space-y-0.5">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#168DCE] font-semibold">
+            <div className="bg-white rounded-2xl border border-[#64C8FF]/50 px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#168DCE] font-semibold">
                   <span className="whitespace-nowrap">4D Pocket Studio</span>
                   <span aria-hidden="true">·</span>
-                  <span className="whitespace-nowrap">
+                  <span className="truncate">
                     Editing: {config.recipientName || 'Untitled'}&apos;s Birthday
                   </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="whitespace-nowrap">Auto-saved locally</span>
                 </div>
-                <h1 className="font-display text-lg sm:text-xl font-bold text-[#183247]">
+                <h1 className="font-display text-base sm:text-xl font-bold text-[#183247]">
                   Customize &amp; Preview Live 💙
                 </h1>
               </div>
 
-              {/* Mobile Edit / Live Preview Switch (Visible on < lg screens) */}
-              <div className="flex lg:hidden items-center gap-1 p-1 bg-[#EAF7FF] rounded-xl border border-[#64C8FF]/40">
+              {/* Mobile Edit / Live Preview / Share Switch (Visible on < lg screens) */}
+              <div className="grid grid-cols-3 lg:hidden items-center gap-1 p-1 bg-[#EAF7FF] rounded-xl border border-[#64C8FF]/40 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setMobilePane('edit')}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
                     mobilePane === 'edit'
                       ? 'bg-[#168DCE] text-white shadow-xs'
                       : 'text-[#183247]/75'
                   }`}
                 >
-                  ✏️ Edit Website
+                  ✏️ Edit
                 </button>
                 <button
                   type="button"
                   onClick={() => setMobilePane('preview')}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
                     mobilePane === 'preview'
                       ? 'bg-[#168DCE] text-white shadow-xs'
                       : 'text-[#183247]/75'
                   }`}
                 >
-                  🎂 Live Preview
+                  🎂 Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobilePane('edit');
+                    setActiveEditorTab('share');
+                  }}
+                  className="px-3 py-2 rounded-lg text-xs font-bold bg-[#FFD84D] hover:bg-[#F5CA2E] text-[#183247] transition-colors whitespace-nowrap text-center cursor-pointer"
+                >
+                  🎁 Share
                 </button>
               </div>
 
               {/* Desktop Quick Actions */}
-              <div className="hidden sm:flex items-center gap-2.5">
+              <div className="hidden lg:flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => handleSaveDraft(config)}
                   className="px-3.5 py-2 rounded-xl bg-[#EAF7FF] hover:bg-[#64C8FF]/30 text-[#183247] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  Save Local Draft 💾
+                  Save Draft 💾
                 </button>
                 <button
                   type="button"
@@ -550,11 +620,11 @@ export default function App() {
                         `dorapocket_share_cache_${targetId}`,
                         JSON.stringify(config)
                       );
-                      const hashData = encodeShareHashPayload(config);
-                      const nextUrl = hashData
-                        ? `/?s=${encodeURIComponent(targetId)}#d=${hashData}`
-                        : `/?s=${encodeURIComponent(targetId)}`;
-                      window.history.pushState({}, '', nextUrl);
+                      window.history.pushState(
+                        {},
+                        '',
+                        `/?s=${encodeURIComponent(targetId)}`
+                      );
                     } catch {
                       // Ignore history/storage restriction
                     }
