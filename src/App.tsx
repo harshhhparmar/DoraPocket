@@ -490,7 +490,7 @@ export default function App() {
       </nav>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1">
+      <main className="relative flex-1">
         {/* VIEW 1: LANDING PAGE */}
         {viewMode === 'landing' && (
           <div className="relative">
@@ -762,34 +762,34 @@ export default function App() {
       </main>
 
       {/* Quiet Footer */}
-      <footer className="relative z-10 bg-white/80 border-t border-[#64C8FF]/35 py-6 px-5 sm:px-8 mt-12">
-        <div className="max-w-[1380px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#183247]/70">
-          <div className="flex items-center gap-2">
+      <footer className="relative z-10 bg-white border-t border-[#64C8FF]/35 py-6 px-4 sm:px-8 mt-12">
+        <div className="max-w-[1380px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 text-xs text-[#183247]/75 text-center sm:text-left">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-1">
             <span className="font-display font-bold text-[#183247]">
               DoraPocket Birthday Studio 🔔
             </span>
-            <span aria-hidden="true">·</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
             <span>Crafted for Magical Birthday Memories 💙</span>
           </div>
-          <div className="flex items-center gap-5">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
             <button
               type="button"
               onClick={() => setViewMode('landing')}
-              className="hover:text-[#168DCE] cursor-pointer"
+              className="hover:text-[#168DCE] font-medium cursor-pointer"
             >
               Landing Page
             </button>
             <button
               type="button"
               onClick={() => setViewMode('studio')}
-              className="hover:text-[#168DCE] cursor-pointer"
+              className="hover:text-[#168DCE] font-medium cursor-pointer"
             >
               Customization Editor
             </button>
             <button
               type="button"
               onClick={() => setViewMode('experience')}
-              className="hover:text-[#168DCE] cursor-pointer"
+              className="hover:text-[#168DCE] font-medium cursor-pointer"
             >
               Explore Experience
             </button>

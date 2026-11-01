@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BirthdayConfig,
   ExperienceStepId,
@@ -85,6 +86,16 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
   useEffect(() => {
     setBrokenImageIds({});
   }, [rawConfig.memories]);
+
+  // Lock background page scroll while photo lightbox modal is open
+  useEffect(() => {
+    if (!selectedMemory || typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [selectedMemory]);
 
   // Keep activeStepId valid if user hides the currently viewed section in editor
   useEffect(() => {
@@ -951,55 +962,58 @@ export const BirthdayExperience: React.FC<BirthdayExperienceProps> = ({
         )}
       </div>
 
-      {/* Lightbox Modal for Enlarged Photo Memory */}
-      {selectedMemory && (
-        <div
-          className="fixed inset-0 z-50 bg-[#183247]/70 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={selectedMemory.caption}
-          onClick={() => setSelectedMemory(null)}
-        >
+      {/* Lightbox Modal for Enlarged Photo Memory (Portalized to document.body) */}
+      {selectedMemory &&
+        typeof document !== 'undefined' &&
+        createPortal(
           <div
-            className="bg-white rounded-3xl max-w-lg w-full overflow-hidden border-2 border-[#64C8FF] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[9999] bg-[#183247]/80 flex items-center justify-center p-4 overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedMemory.caption}
+            onClick={() => setSelectedMemory(null)}
           >
-            <div className="relative aspect-[4/3] bg-[#EAF7FF]">
-              <img
-                src={
-                  brokenImageIds[selectedMemory.id]
-                    ? createMemorySceneDataUri(
-                        selectedMemory.scenePreset || 'sunset-hill'
-                      )
-                    : selectedMemory.imageUrl
-                }
-                alt={selectedMemory.caption}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => setSelectedMemory(null)}
-                aria-label="Close photo view"
-                className="absolute top-3 right-3 p-2 rounded-full bg-white/90 hover:bg-white text-[#183247] shadow-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-6 space-y-2">
-              <div className="text-xs font-semibold text-[#168DCE]">
-                {selectedMemory.dateLabel}
+            <div
+              className="bg-white rounded-3xl max-w-lg w-full overflow-hidden border-2 border-[#64C8FF] shadow-2xl my-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="relative aspect-[4/3] bg-[#EAF7FF]">
+                <img
+                  src={
+                    brokenImageIds[selectedMemory.id]
+                      ? createMemorySceneDataUri(
+                          selectedMemory.scenePreset || 'sunset-hill'
+                        )
+                      : selectedMemory.imageUrl
+                  }
+                  alt={selectedMemory.caption}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedMemory(null)}
+                  aria-label="Close photo view"
+                  className="absolute top-3 right-3 p-2 rounded-full bg-white/95 hover:bg-white text-[#183247] shadow-md cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <h4 className="font-display text-xl font-bold text-[#183247]">
-                {selectedMemory.caption}
-              </h4>
-              <p className="text-sm text-[#183247]/80 leading-relaxed">
-                {selectedMemory.story}
-              </p>
+              <div className="p-5 sm:p-6 space-y-2">
+                <div className="text-xs font-semibold text-[#168DCE]">
+                  {selectedMemory.dateLabel}
+                </div>
+                <h4 className="font-display text-lg sm:text-xl font-bold text-[#183247]">
+                  {selectedMemory.caption}
+                </h4>
+                <p className="text-xs sm:text-sm text-[#183247]/80 leading-relaxed">
+                  {selectedMemory.story}
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

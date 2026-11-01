@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { PhotoMemory } from '../types/birthday';
 import {
   buildCanvasFilterString,
@@ -694,20 +695,41 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
     }
   };
 
+  // Lock background page scroll while modal is open and support Escape key
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
   const currentOutputDims = getAspectRatioDimensions(
     aspectRatio,
     sourceDims,
     { widthPct: freeWidthPct, heightPct: freeHeightPct }
   );
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[90] bg-[#183247]/80 flex items-center justify-center p-2.5 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-[9999] bg-[#183247]/80 flex items-center justify-center p-2 sm:p-5 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label={`Edit and crop photo: ${memory.caption}`}
     >
-      <div className="bg-white rounded-[24px] sm:rounded-[28px] border-2 border-[#64C8FF] max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-[22px] sm:rounded-[28px] border-2 border-[#64C8FF] max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[92vh]">
         {/* Modal Header */}
         <div className="bg-[#EAF7FF] border-b border-[#64C8FF]/50 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -756,7 +778,7 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
         </div>
 
         {/* Modal Body: Left Interactive Crop Viewport + Right Tabbed Studio Controls */}
-        <div className="p-3.5 sm:p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="flex-1 min-h-0 p-3.5 sm:p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Left Column: Interactive Crop Canvas & Quick Geometry Bar (7 cols) */}
           <div className="lg:col-span-7 space-y-3">
             <div className="relative rounded-2xl bg-[#183247] border-2 border-[#64C8FF] p-2.5 sm:p-4 flex items-center justify-center min-h-[250px] sm:min-h-[360px] overflow-hidden select-none">
@@ -1381,7 +1403,7 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="bg-[#EAF7FF]/70 border-t border-[#64C8FF]/45 px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+        <div className="shrink-0 bg-[#EAF7FF] border-t-2 border-[#64C8FF]/60 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 relative z-10">
           <div className="text-[11px] text-[#183247]/70 hidden sm:block">
             Tip: Use <strong className="text-[#168DCE]">Fit Full Photo</strong> if you
             don&apos;t want any edges cropped out.
@@ -1390,7 +1412,7 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 min-h-[42px] rounded-xl bg-white hover:bg-[#EAF7FF] text-[#183247] border border-[#64C8FF]/50 text-xs font-semibold cursor-pointer"
+              className="px-4 py-2.5 min-h-[42px] rounded-xl bg-white hover:bg-[#EAF7FF] text-[#183247] border border-[#64C8FF]/60 text-xs font-semibold cursor-pointer"
             >
               Cancel
             </button>
@@ -1415,6 +1437,7 @@ export const PhotoCropEditorModal: React.FC<PhotoCropEditorModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
