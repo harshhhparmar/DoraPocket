@@ -33,6 +33,12 @@ import {
   GadgetIllustration,
 } from './DoraemonIllustrations';
 import {
+  SUPABASE_PROJECT_ID,
+  SUPABASE_SQL_SETUP_QUERY,
+  SUPABASE_TABLE_NAME,
+  saveWebsiteToSupabase,
+} from '../utils/supabase';
+import {
   User,
   Image as ImageIcon,
   Sparkles,
@@ -60,6 +66,7 @@ import {
   AlertCircle,
   RefreshCw,
   Crop,
+  Database,
 } from 'lucide-react';
 import { PhotoCropEditorModal } from './PhotoCropEditorModal';
 
@@ -121,15 +128,20 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [isPublishingShare, setIsPublishingShare] = useState(false);
   const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
   const [shareErrorMsg, setShareErrorMsg] = useState<string | null>(null);
+  const [supabaseSynced, setSupabaseSynced] = useState<boolean>(false);
+  const [supabaseTableMissing, setSupabaseTableMissing] =
+    useState<boolean>(false);
+  const [copiedSqlQuery, setCopiedSqlQuery] = useState<boolean>(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [editingCropMemory, setEditingCropMemory] = useState<PhotoMemory | null>(
     null
   );
 
-  // Keep the active shareId cache in localStorage synced with every user edit
+  // Keep the active shareId cache in localStorage AND Supabase backend synced with every user edit
   useEffect(() => {
     if (!shareId || typeof window === 'undefined') return;
     try {
+      window.localStorage.setItem(STORAGE_SHARE_ID_KEY, shareId);
       window.localStorage.setItem(
         `dorapocket_share_cache_${shareId}`,
         JSON.stringify(config)
@@ -138,6 +150,19 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     } catch {
       // Ignore storage quota
     }
+
+    // Debounced auto-save to Supabase (`public.birthday_websites`) whenever user creates or edits website details
+    const timer = window.setTimeout(async () => {
+      const supaRes = await saveWebsiteToSupabase(shareId, config);
+      if (supaRes.ok) {
+        setSupabaseSynced(true);
+        setSupabaseTableMissing(false);
+      } else if (supaRes.tableMissing) {
+        setSupabaseTableMissing(true);
+      }
+    }, 850);
+
+    return () => window.clearTimeout(timer);
   }, [config, shareId]);
 
   // New Wish state
@@ -730,8 +755,8 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   };
 
   /**
-   * Publishes or updates the birthday configuration on the backend (/api/shares),
-   * storing uploaded photos as URLs and returning a compact short-ID share link (?s=<shortId>).
+   * Publishes or updates the birthday configuration in Supabase (`public.birthday_websites`)
+   * and backend (/api/shares), returning a shareable link.
    */
   const publishShareConfiguration = useCallback(
     async (copyToClipboard: boolean): Promise<string | null> => {
@@ -746,15 +771,28 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           shareId && shareId !== 'dorav4amjv'
             ? shareId
             : generateClientShareId(config.recipientName);
-        let resolvedConfig: BirthdayConfig = config;
+        const resolvedConfig: BirthdayConfig = config;
 
+        // 1. Save directly to Supabase database (`public.birthday_websites`)
+        const supaResult = await saveWebsiteToSupabase(
+          resolvedId,
+          resolvedConfig
+        );
+        if (supaResult.ok) {
+          setSupabaseSynced(true);
+          setSupabaseTableMissing(false);
+        } else if (supaResult.tableMissing) {
+          setSupabaseTableMissing(true);
+        }
+
+        // 2. Also sync with backend /api/shares (Express / Vercel serverless)
         try {
           const response = await fetch('/api/shares', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               id: resolvedId,
-              config,
+              config: resolvedConfig,
             }),
           });
 
@@ -764,10 +802,15 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
               const data = JSON.parse(text) as {
                 id?: string;
                 sharePath?: string;
+                savedToSupabase?: boolean;
                 config?: BirthdayConfig;
               };
               if (data.id) {
                 resolvedId = data.id;
+              }
+              if (data.savedToSupabase) {
+                setSupabaseSynced(true);
+                setSupabaseTableMissing(false);
               }
             }
           }
@@ -798,28 +841,39 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
           resolvedConfig
         );
 
+        // If saved in Supabase, the clean short URL (?s=...) works across all devices; otherwise include #d= payload
+        const urlToCopy = supaResult.ok ? compactDisplayUrl : shareableFullUrl;
+
         if (copyToClipboard) {
           try {
-            await navigator.clipboard.writeText(shareableFullUrl);
+            await navigator.clipboard.writeText(urlToCopy);
             setCopiedLink(true);
             setTimeout(() => setCopiedLink(false), 3200);
             setShareSuccessMsg(
-              `Compact share link (${compactDisplayUrl}) saved & copied to clipboard! 🎉`
+              supaResult.ok
+                ? `Saved to Supabase & copied share link (${compactDisplayUrl})! 🎉`
+                : `Share link copied to clipboard! (Run the Supabase SQL query below to enable short database links) 🎉`
             );
-            showToast('Compact share link saved & copied to clipboard! 🔗');
+            showToast(
+              supaResult.ok
+                ? 'Saved to Supabase & copied share link! 🔗☁️'
+                : 'Share link copied to clipboard! 🔗'
+            );
           } catch {
             setShareSuccessMsg(
-              `Compact share link ready (${compactDisplayUrl}) — copy it above to share! 🎉`
+              `Share link ready (${compactDisplayUrl}) — copy it above to share! 🎉`
             );
-            showToast('Compact share link generated! 🔗');
+            showToast('Share link generated! 🔗');
           }
         } else {
           setShareSuccessMsg(
-            `Synced live share link (?s=${resolvedId}) for ${resolvedConfig.recipientName} ✨`
+            supaResult.ok
+              ? `Synced "${resolvedConfig.recipientName}" to Supabase table (${SUPABASE_TABLE_NAME}) · ID: ${resolvedId} ☁️✨`
+              : `Synced live share link (?s=${resolvedId}) for ${resolvedConfig.recipientName} ✨`
           );
         }
 
-        return shareableFullUrl;
+        return urlToCopy;
       } catch (err) {
         const msg =
           err instanceof Error
@@ -831,7 +885,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
         setIsPublishingShare(false);
       }
     },
-    [config, onChange, shareId]
+    [config, shareId]
   );
 
   // Automatically publish/sync the short share link when the user opens the Share tab
@@ -1090,12 +1144,14 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   }
                   onChange={(e) => {
                     const nextName = e.target.value;
-                    const freshId = generateClientShareId(nextName);
-                    setShareId(freshId);
-                    try {
-                      window.localStorage.setItem(STORAGE_SHARE_ID_KEY, freshId);
-                    } catch {
-                      // Ignore storage error
+                    if (!shareId || shareId === 'dorav4amjv') {
+                      const freshId = generateClientShareId(nextName);
+                      setShareId(freshId);
+                      try {
+                        window.localStorage.setItem(STORAGE_SHARE_ID_KEY, freshId);
+                      } catch {
+                        // Ignore storage error
+                      }
                     }
                     onChange(
                       syncBirthdayConfigWithDetails(config, {
@@ -2276,7 +2332,9 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   value={
                     isPublishingShare && !shareId
                       ? 'Generating compact short link...'
-                      : shareUrlPreview
+                      : supabaseSynced
+                        ? shareUrlPreview
+                        : shareUrlWithHash
                   }
                   aria-label="Shareable Birthday Website URL"
                   className="flex-1 px-3.5 py-2.5 rounded-xl bg-white border border-[#64C8FF] text-xs text-[#183247] font-mono-num select-all"
@@ -2314,7 +2372,8 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                   <span>
-                    Storing photos &amp; birthday configuration under short ID...
+                    Saving website data &amp; photos to Supabase (
+                    {SUPABASE_TABLE_NAME})...
                   </span>
                 </div>
               )}
@@ -2344,7 +2403,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                         Open Short Link →
                       </button>
                       <a
-                        href={shareUrlWithHash}
+                        href={supabaseSynced ? shareUrlPreview : shareUrlWithHash}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[#183247]/70 hover:text-[#168DCE] hover:underline whitespace-nowrap flex items-center gap-1"
@@ -2367,13 +2426,101 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 </div>
               )}
 
+              {/* Supabase Backend Connection & SQL Setup Helper */}
+              <div className="p-3.5 rounded-xl bg-white border border-[#64C8FF]/60 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#183247]">
+                    <Database className="w-3.5 h-3.5 text-[#168DCE] shrink-0" />
+                    <span>
+                      Supabase Cloud DB ({SUPABASE_PROJECT_ID}) · Table:{' '}
+                      <code className="text-[#168DCE]">{SUPABASE_TABLE_NAME}</code>
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md ${
+                      supabaseSynced
+                        ? 'bg-[#E6F8EF] text-[#15803D]'
+                        : supabaseTableMissing
+                          ? 'bg-[#FFF4D6] text-[#B45309]'
+                          : 'bg-[#EAF7FF] text-[#168DCE]'
+                    }`}
+                  >
+                    {supabaseSynced
+                      ? '● Connected & Saved'
+                      : supabaseTableMissing
+                        ? '● Run SQL Setup Once'
+                        : '● Ready to Sync'}
+                  </span>
+                </div>
+
+                {supabaseTableMissing && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[11px] text-[#183247]/80">
+                      To save websites directly in your Supabase table (
+                      <code className="font-semibold">
+                        public.{SUPABASE_TABLE_NAME}
+                      </code>
+                      ), copy the SQL setup query below and run it once in your{' '}
+                      <a
+                        href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_ID}/sql/new`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#168DCE] font-bold underline"
+                      >
+                        Supabase SQL Editor ↗
+                      </a>
+                      .
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(
+                              SUPABASE_SQL_SETUP_QUERY
+                            );
+                            setCopiedSqlQuery(true);
+                            setTimeout(() => setCopiedSqlQuery(false), 3000);
+                            showToast(
+                              'Copied Supabase SQL Editor query to clipboard! Paste & Run in Supabase SQL Editor 🗄️'
+                            );
+                          } catch {
+                            // Ignore clipboard error
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#168DCE] hover:bg-[#1276AD] text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {copiedSqlQuery ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            Copied SQL Query!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            Copy SQL Editor Query
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => publishShareConfiguration(false)}
+                        className="px-3 py-1.5 rounded-lg bg-[#EAF7FF] hover:bg-[#64C8FF]/40 text-[#183247] text-xs font-semibold cursor-pointer"
+                      >
+                        Test Connection Again
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <p className="text-[11px] text-[#183247]/70">
                 Your custom text, wishes, uploaded photos, and layout are stored
-                on the server under a short ID (
+                in Supabase under short ID (
                 <code className="font-semibold text-[#168DCE]">
                   ?s={shareId || 'dora...'}
                 </code>
-                ) so the link stays compact and never triggers URL length errors.
+                ) so the link opens on any phone or browser.
               </p>
             </div>
 

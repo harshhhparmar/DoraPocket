@@ -189,4 +189,25 @@ test('getAspectRatioDimensions and buildCanvasFilterString compute accurate crop
   );
 });
 
+test('buildSupabaseRowPayload and hydrateConfigFromSupabaseRow serialize and restore full BirthdayConfig accurately', async () => {
+  const { buildSupabaseRowPayload, hydrateConfigFromSupabaseRow } = await import(
+    './supabase'
+  );
+  const customConfig = syncBirthdayConfigWithDetails(DEFAULT_BIRTHDAY_CONFIG, {
+    recipientName: 'Priya',
+    age: 22,
+    senderName: 'Harsh',
+  });
+  const row = buildSupabaseRowPayload('dora-priya-123456', customConfig);
+  assert.equal(row.id, 'dora-priya-123456');
+  assert.equal(row.recipient_name, 'Priya');
+  assert.equal(row.age, 22);
+  assert.equal(row.sender_name, 'Harsh');
 
+  const hydrated = hydrateConfigFromSupabaseRow(row);
+  assert.ok(hydrated);
+  assert.equal(hydrated.recipientName, 'Priya');
+  assert.equal(hydrated.age, 22);
+  assert.equal(hydrated.senderName, 'Harsh');
+  assert.equal(hydrated.headline, 'Happy Birthday, Priya! 🎂');
+});

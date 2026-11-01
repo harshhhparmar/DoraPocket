@@ -253,8 +253,157 @@ async function startServer() {
   app.get('/api/uploads/:filename', serveUploadFile);
   app.get('/uploads/:filename', serveUploadFile);
 
-  // 3. Create or update a shared birthday configuration with a short ID
-  app.post('/api/shares', (req, res) => {
+  // 3. Create or update a shared birthday configuration with a short ID (Persisted to Supabase + Local Store)
+  const SUPABASE_URL =
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    'https://bwmsywizdfjakoghyjma.supabase.co';
+  const SUPABASE_KEY =
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    'sb_publishable_1zYEH-f8ipMmxpStFtm8UQ_-gsdwSfb';
+  const SUPABASE_REST_ENDPOINT = `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/birthday_websites`;
+
+  const upsertSupabaseRecord = async (
+    shortId: string,
+    cfg: Record<string, unknown>
+  ): Promise<boolean> => {
+    try {
+      const payload = {
+        id: shortId,
+        recipient_name:
+          typeof cfg.recipientName === 'string' && cfg.recipientName
+            ? cfg.recipientName
+            : 'Birthday Star',
+        nickname: typeof cfg.nickname === 'string' ? cfg.nickname : '',
+        age: typeof cfg.age === 'number' && Number.isFinite(cfg.age) ? cfg.age : 20,
+        birthday_date:
+          typeof cfg.birthdayDate === 'string' ? cfg.birthdayDate : '',
+        sender_name:
+          typeof cfg.senderName === 'string' && cfg.senderName
+            ? cfg.senderName
+            : 'Your Besties',
+        relationship:
+          typeof cfg.relationship === 'string' ? cfg.relationship : 'Best Friend',
+        headline:
+          typeof cfg.headline === 'string' ? cfg.headline : 'Happy Birthday! 🎂✨',
+        personal_message:
+          typeof cfg.personalMessage === 'string' ? cfg.personalMessage : '',
+        letter_greeting:
+          typeof cfg.letterGreeting === 'string' ? cfg.letterGreeting : '',
+        letter_body: typeof cfg.letterBody === 'string' ? cfg.letterBody : '',
+        letter_sign_off:
+          typeof cfg.letterSignOff === 'string' ? cfg.letterSignOff : '',
+        final_headline:
+          typeof cfg.finalHeadline === 'string' ? cfg.finalHeadline : '',
+        final_subtext:
+          typeof cfg.finalSubtext === 'string' ? cfg.finalSubtext : '',
+        memories: Array.isArray(cfg.memories) ? cfg.memories : [],
+        wishes: Array.isArray(cfg.wishes) ? cfg.wishes : [],
+        funny_moments: Array.isArray(cfg.funnyMoments) ? cfg.funnyMoments : [],
+        gadget_surprises: Array.isArray(cfg.gadgetSurprises)
+          ? cfg.gadgetSurprises
+          : [],
+        music: cfg.music && typeof cfg.music === 'object' ? cfg.music : {},
+        appearance:
+          cfg.appearance && typeof cfg.appearance === 'object'
+            ? cfg.appearance
+            : {},
+        sections:
+          cfg.sections && typeof cfg.sections === 'object' ? cfg.sections : {},
+        config: cfg,
+        updated_at: new Date().toISOString(),
+      };
+
+      const res = await fetch(`${SUPABASE_REST_ENDPOINT}?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify(payload),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const fetchSupabaseRecord = async (
+    shortId: string
+  ): Promise<StoredShareRecord | null> => {
+    try {
+      const url = `${SUPABASE_REST_ENDPOINT}?id=eq.${encodeURIComponent(shortId)}&select=*&limit=1`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          Accept: 'application/json',
+        },
+      });
+      if (!res.ok) return null;
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      const row = rows[0];
+      const baseConfig =
+        row.config && typeof row.config === 'object'
+          ? (row.config as Record<string, unknown>)
+          : {};
+      const mergedConfig: Record<string, unknown> = {
+        ...baseConfig,
+        recipientName:
+          typeof row.recipient_name === 'string' && row.recipient_name
+            ? row.recipient_name
+            : baseConfig.recipientName,
+        nickname:
+          typeof row.nickname === 'string' ? row.nickname : baseConfig.nickname,
+        age: typeof row.age === 'number' ? row.age : baseConfig.age,
+        birthdayDate: row.birthday_date || baseConfig.birthdayDate,
+        senderName: row.sender_name || baseConfig.senderName,
+        relationship: row.relationship || baseConfig.relationship,
+        headline: row.headline || baseConfig.headline,
+        personalMessage: row.personal_message || baseConfig.personalMessage,
+        letterGreeting: row.letter_greeting || baseConfig.letterGreeting,
+        letterBody: row.letter_body || baseConfig.letterBody,
+        letterSignOff: row.letter_sign_off || baseConfig.letterSignOff,
+        finalHeadline: row.final_headline || baseConfig.finalHeadline,
+        finalSubtext: row.final_subtext || baseConfig.finalSubtext,
+        memories:
+          Array.isArray(row.memories) && row.memories.length > 0
+            ? row.memories
+            : baseConfig.memories,
+        wishes:
+          Array.isArray(row.wishes) && row.wishes.length > 0
+            ? row.wishes
+            : baseConfig.wishes,
+        funnyMoments:
+          Array.isArray(row.funny_moments) && row.funny_moments.length > 0
+            ? row.funny_moments
+            : baseConfig.funnyMoments,
+        gadgetSurprises:
+          Array.isArray(row.gadget_surprises) && row.gadget_surprises.length > 0
+            ? row.gadget_surprises
+            : baseConfig.gadgetSurprises,
+        music: row.music || baseConfig.music,
+        appearance: row.appearance || baseConfig.appearance,
+        sections: row.sections || baseConfig.sections,
+      };
+      return {
+        id: String(row.id || shortId),
+        config: mergedConfig,
+        createdAt: String(row.created_at || new Date().toISOString()),
+        updatedAt: String(row.updated_at || new Date().toISOString()),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  app.post('/api/shares', async (req, res) => {
     try {
       const { id: requestedId, config } = req.body || {};
       if (!config || typeof config !== 'object' || typeof config.recipientName !== 'string') {
@@ -268,7 +417,7 @@ async function startServer() {
       // Honor the client's existing short ID if valid so links never become orphaned
       const validRequestedId =
         typeof requestedId === 'string' &&
-        /^[a-zA-Z0-9_-]{4,24}$/.test(requestedId)
+        /^[a-zA-Z0-9_-]{4,32}$/.test(requestedId)
           ? requestedId
           : null;
 
@@ -288,10 +437,13 @@ async function startServer() {
       store[shortId] = record;
       writeSharesStore(store, record);
 
+      const savedToSupabase = await upsertSupabaseRecord(shortId, cleanedConfig);
+
       res.status(201).json({
         id: shortId,
         sharePath: `/?s=${shortId}`,
         config: cleanedConfig,
+        savedToSupabase,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       });
@@ -304,7 +456,7 @@ async function startServer() {
   });
 
   // 4. Retrieve a shared birthday configuration by its short ID
-  const handleGetShare = (rawIdInput: string, res: express.Response) => {
+  const handleGetShare = async (rawIdInput: string, res: express.Response) => {
     try {
       const rawId = (rawIdInput || '').trim();
       if (!/^[a-zA-Z0-9_-]{3,32}$/.test(rawId)) {
@@ -312,10 +464,17 @@ async function startServer() {
         return;
       }
 
-      const store = readSharesStore();
-      let record: StoredShareRecord | undefined = store[rawId];
+      // 1. Check Supabase database first for latest synced record
+      let record: StoredShareRecord | undefined | null =
+        await fetchSupabaseRecord(rawId);
 
-      // Also check static public/shares/<id>.json for this specific share ID
+      // 2. Fallback to local file store
+      if (!record) {
+        const store = readSharesStore();
+        record = store[rawId];
+      }
+
+      // 3. Also check static public/shares/<id>.json for this specific share ID
       if (!record) {
         const publicSharePath = path.join(PUBLIC_SHARES_DIR, `${rawId}.json`);
         if (fs.existsSync(publicSharePath)) {
@@ -341,11 +500,11 @@ async function startServer() {
 
   app.get('/api/shares', (req, res) => {
     const queryId = typeof req.query.id === 'string' ? req.query.id : '';
-    handleGetShare(queryId, res);
+    void handleGetShare(queryId, res);
   });
 
   app.get('/api/shares/:id', (req, res) => {
-    handleGetShare(req.params.id || '', res);
+    void handleGetShare(req.params.id || '', res);
   });
 
   // Vite middleware for development or static serving for production

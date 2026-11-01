@@ -20,6 +20,10 @@ import {
   normalizeBirthdayConfig,
   purgeLegacyStorage,
 } from './utils/birthdayLogic';
+import {
+  fetchWebsiteFromSupabase,
+  saveWebsiteToSupabase,
+} from './utils/supabase';
 import { FloatingSkyBackdrop } from './components/DoraemonIllustrations';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { LandingPage } from './components/LandingPage';
@@ -48,6 +52,10 @@ export default function App() {
   const [config, setConfig] = useState<BirthdayConfig>(() => {
     if (typeof window !== 'undefined') {
       try {
+        const hashPayload = decodeShareHashPayload(window.location.hash);
+        if (hashPayload) {
+          return normalizeBirthdayConfig(hashPayload);
+        }
         if (sharedId && sharedId !== 'dorav4amjv') {
           const cachedShare = window.localStorage.getItem(
             `dorapocket_share_cache_${sharedId}`
@@ -59,12 +67,8 @@ export default function App() {
             }
           }
         }
-        const hashPayload = decodeShareHashPayload(window.location.hash);
-        if (hashPayload) {
-          return normalizeBirthdayConfig(hashPayload);
-        }
         const saved = window.localStorage.getItem(STORAGE_DRAFT_KEY);
-        if (saved) {
+        if (saved && !sharedId) {
           const parsed = JSON.parse(saved) as Partial<BirthdayConfig>;
           if (parsed && typeof parsed.recipientName === 'string') {
             return normalizeBirthdayConfig(parsed);
@@ -120,7 +124,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Fetch shared birthday configuration when opened via compact short link (?s=<id> or ?id=<id>)
+  // Fetch shared birthday configuration from Supabase (plus API / URL hash / local cache fallbacks) when opened via ?s=<id>
   useEffect(() => {
     if (!sharedId) return;
     if (skipNextRemoteFetchRef.current) {
@@ -166,19 +170,10 @@ export default function App() {
       const safeId = encodeURIComponent(sharedId);
       let foundConfig: Partial<BirthdayConfig> | null = null;
 
-      // 1. Check browser localStorage cache for this specific share ID first (always reflects latest user edits)
-      try {
-        const cached = window.localStorage.getItem(
-          `dorapocket_share_cache_${sharedId}`
-        );
-        if (cached) {
-          const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
-          if (parsed && typeof parsed.recipientName === 'string') {
-            foundConfig = parsed;
-          }
-        }
-      } catch {
-        // Ignore storage error
+      // 1. Fetch directly from Supabase (`public.birthday_websites`) first so cross-device / Vercel links always get latest DB record
+      const supabaseConfig = await fetchWebsiteFromSupabase(sharedId);
+      if (supabaseConfig) {
+        foundConfig = supabaseConfig;
       }
 
       // 2. Try backend API (/api/shares?id=<id> and /api/shares/<id>)
@@ -189,17 +184,34 @@ export default function App() {
         foundConfig = await tryFetchShareJson(`/api/shares/${safeId}`);
       }
 
-      // 3. Try static JSON bundle (/shares/<id>.json) for this specific share ID
-      if (!foundConfig) {
-        foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
-      }
-
-      // 4. Try client-side URL hash payload (#d=...) — works across devices & Vercel without Nginx 414
+      // 3. Try client-side URL hash payload (#d=...) — works across devices even before Supabase table is created
       if (!foundConfig && typeof window !== 'undefined') {
         foundConfig = decodeShareHashPayload(window.location.hash);
       }
 
-      // 5. Fallback to current browser draft ONLY if the draft belongs to this shareId
+      // 4. Check browser localStorage cache for this specific share ID
+      if (!foundConfig) {
+        try {
+          const cached = window.localStorage.getItem(
+            `dorapocket_share_cache_${sharedId}`
+          );
+          if (cached) {
+            const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
+            if (parsed && typeof parsed.recipientName === 'string') {
+              foundConfig = parsed;
+            }
+          }
+        } catch {
+          // Ignore storage error
+        }
+      }
+
+      // 5. Try static JSON bundle (/shares/<id>.json) for this specific share ID
+      if (!foundConfig) {
+        foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
+      }
+
+      // 6. Fallback to current browser draft ONLY if the draft belongs to this shareId
       if (!foundConfig) {
         try {
           const currentDraftShareId = window.localStorage.getItem(
@@ -237,13 +249,13 @@ export default function App() {
         }
       } else {
         setSharedSurpriseError(
-          `Could not find birthday surprise link "${sharedId}".`
+          `Could not find birthday surprise link "${sharedId}". Make sure the SQL query has been run in your Supabase SQL Editor or re-copy the share link.`
         );
       }
       setIsLoadingSharedSurprise(false);
     };
 
-    loadSharedSurprise();
+    void loadSharedSurprise();
 
     return () => {
       cancelled = true;
@@ -265,6 +277,10 @@ export default function App() {
           STORAGE_DRAFT_KEY,
           JSON.stringify(nextConfig)
         );
+        const activeShareId = window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
+        if (activeShareId) {
+          void saveWebsiteToSupabase(activeShareId, nextConfig);
+        }
         const now = new Date();
         setLastSavedAt(
           now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
