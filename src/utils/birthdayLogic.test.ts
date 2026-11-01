@@ -5,6 +5,7 @@ import {
   applyCharacterPreset,
   buildCanvasFilterString,
   buildCompactShareUrl,
+  computeCropTransformMetrics,
   decodeShareHashPayload,
   encodeShareHashPayload,
   extractShareIdFromSearch,
@@ -187,11 +188,43 @@ test('extractYouTubeVideoId parses watch, short, embed, and bare Doraemon video 
   assert.equal(extractYouTubeVideoId('https://example.com/not-youtube'), null);
 });
 
-test('getAspectRatioDimensions and buildCanvasFilterString compute accurate crop canvas specs', () => {
-  assert.deepEqual(getAspectRatioDimensions('16:9'), { width: 800, height: 450 });
-  assert.deepEqual(getAspectRatioDimensions('1:1'), { width: 720, height: 720 });
+test('getAspectRatioDimensions, computeCropTransformMetrics, and buildCanvasFilterString compute accurate crop canvas specs', () => {
+  assert.deepEqual(getAspectRatioDimensions('16:9'), { width: 960, height: 540 });
+  assert.deepEqual(getAspectRatioDimensions('1:1'), { width: 840, height: 840 });
+  assert.deepEqual(getAspectRatioDimensions('9:16'), { width: 630, height: 1120 });
+  assert.deepEqual(
+    getAspectRatioDimensions('original', { width: 1200, height: 900 }),
+    { width: 960, height: 720 }
+  );
+  assert.deepEqual(
+    getAspectRatioDimensions('free', undefined, { widthPct: 80, heightPct: 60 }),
+    { width: 720, height: 405 }
+  );
+
+  const metrics = computeCropTransformMetrics({
+    targetWidth: 840,
+    targetHeight: 840,
+    sourceWidth: 1680,
+    sourceHeight: 840,
+    rotation90: 0,
+    straightenAngle: 0,
+    zoom: 1.5,
+    panX: 0,
+    panY: 0,
+    fitMode: 'cover',
+  });
+  assert.equal(metrics.totalRadians, 0);
+  assert.equal(metrics.totalScale, 1.5);
+  assert.equal(metrics.offsetX, 0);
+  assert.equal(metrics.offsetY, 0);
+
   assert.equal(
-    buildCanvasFilterString({ brightness: 110, contrast: 105, saturation: 120, warmth: 15 }),
+    buildCanvasFilterString({
+      brightness: 110,
+      contrast: 105,
+      saturation: 120,
+      warmth: 15,
+    }),
     'brightness(110%) contrast(105%) saturate(120%) sepia(15%)'
   );
 });

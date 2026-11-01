@@ -1193,26 +1193,142 @@ export function applyCharacterPreset(
   }
 }
 
-export type PhotoAspectRatio = '16:9' | '4:3' | '1:1' | '3:4';
+export type PhotoAspectRatio =
+  | 'original'
+  | '16:9'
+  | '4:3'
+  | '1:1'
+  | '3:4'
+  | '9:16'
+  | 'free';
+
+export type PhotoCropShape =
+  | 'rect'
+  | 'rounded'
+  | 'circle'
+  | 'heart'
+  | 'door-arch';
+
+export type PhotoFitMode = 'cover' | 'contain-blur';
+
+export type PhotoCornerStamp =
+  | 'none'
+  | 'golden-bell'
+  | 'birthday-cake'
+  | 'anywhere-door'
+  | 'besties-heart';
 
 /**
- * Returns target canvas output dimensions (width, height) for a selected crop aspect ratio.
+ * Returns target canvas output dimensions (width, height) for a selected crop aspect ratio,
+ * optional source image dimensions (for 'original'), and optional freeform crop box percentages.
  */
-export function getAspectRatioDimensions(ratio: PhotoAspectRatio): {
+export function getAspectRatioDimensions(
+  ratio: PhotoAspectRatio,
+  sourceDimensions?: { width: number; height: number },
+  freeBox?: { widthPct: number; heightPct: number }
+): {
   width: number;
   height: number;
 } {
   switch (ratio) {
+    case 'original': {
+      const srcW = sourceDimensions?.width || 800;
+      const srcH = sourceDimensions?.height || 600;
+      const maxSide = 960;
+      const scale = maxSide / Math.max(srcW, srcH, 1);
+      return {
+        width: Math.max(240, Math.round(srcW * scale)),
+        height: Math.max(240, Math.round(srcH * scale)),
+      };
+    }
+    case 'free': {
+      const baseW = 900;
+      const baseH = 675;
+      const wPct = Math.max(25, Math.min(100, freeBox?.widthPct ?? 100)) / 100;
+      const hPct = Math.max(25, Math.min(100, freeBox?.heightPct ?? 100)) / 100;
+      return {
+        width: Math.max(240, Math.round(baseW * wPct)),
+        height: Math.max(240, Math.round(baseH * hPct)),
+      };
+    }
     case '4:3':
-      return { width: 800, height: 600 };
+      return { width: 960, height: 720 };
     case '1:1':
-      return { width: 720, height: 720 };
+      return { width: 840, height: 840 };
     case '3:4':
-      return { width: 600, height: 800 };
+      return { width: 720, height: 960 };
+    case '9:16':
+      return { width: 630, height: 1120 };
     case '16:9':
     default:
-      return { width: 800, height: 450 };
+      return { width: 960, height: 540 };
   }
+}
+
+/**
+ * Computes deterministic scale, total rotation radians, and pixel offsets for canvas cropping.
+ */
+export function computeCropTransformMetrics(params: {
+  targetWidth: number;
+  targetHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  rotation90: number;
+  straightenAngle: number;
+  zoom: number;
+  panX: number;
+  panY: number;
+  fitMode: PhotoFitMode;
+}): {
+  totalRadians: number;
+  totalScale: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  const safeSrcW = Math.max(1, params.sourceWidth || 800);
+  const safeSrcH = Math.max(1, params.sourceHeight || 600);
+  const isRotated90 = Math.abs(params.rotation90 % 180) === 90;
+  const effW = isRotated90 ? safeSrcH : safeSrcW;
+  const effH = isRotated90 ? safeSrcW : safeSrcH;
+
+  const baseScale =
+    params.fitMode === 'contain-blur'
+      ? Math.min(params.targetWidth / effW, params.targetHeight / effH)
+      : Math.max(params.targetWidth / effW, params.targetHeight / effH);
+
+  // Add slight auto-zoom when straightenAngle is non-zero in cover mode so tilted corners don't show empty triangles
+  const tiltBoost =
+    params.fitMode === 'cover' && params.straightenAngle !== 0
+      ? 1 + Math.min(0.32, Math.abs(params.straightenAngle) * 0.008)
+      : 1;
+
+  const safeZoom = Math.max(0.5, Math.min(4, params.zoom || 1));
+  const totalScale = baseScale * tiltBoost * safeZoom;
+
+  const scaledW = effW * totalScale;
+  const scaledH = effH * totalScale;
+
+  const maxOffsetX = Math.max(
+    120,
+    (scaledW - params.targetWidth) / 2 + params.targetWidth * 0.35
+  );
+  const maxOffsetY = Math.max(
+    120,
+    (scaledH - params.targetHeight) / 2 + params.targetHeight * 0.35
+  );
+
+  const clampedPanX = Math.max(-100, Math.min(100, params.panX || 0));
+  const clampedPanY = Math.max(-100, Math.min(100, params.panY || 0));
+
+  const totalDegrees = (params.rotation90 || 0) + (params.straightenAngle || 0);
+  const totalRadians = (totalDegrees * Math.PI) / 180;
+
+  return {
+    totalRadians,
+    totalScale,
+    offsetX: (clampedPanX / 100) * maxOffsetX,
+    offsetY: (clampedPanY / 100) * maxOffsetY,
+  };
 }
 
 /**
@@ -1223,6 +1339,7 @@ export function buildCanvasFilterString(settings: {
   contrast: number;
   saturation: number;
   warmth?: number;
+  blurPx?: number;
 }): string {
   const b = Math.max(40, Math.min(200, Math.round(settings.brightness || 100)));
   const c = Math.max(40, Math.min(200, Math.round(settings.contrast || 100)));
@@ -1231,6 +1348,11 @@ export function buildCanvasFilterString(settings: {
     settings.warmth && settings.warmth > 0
       ? Math.min(40, Math.round(settings.warmth))
       : 0;
-  return `brightness(${b}%) contrast(${c}%) saturate(${s}%) sepia(${sepia}%)`;
+  const blurPart =
+    settings.blurPx && settings.blurPx > 0
+      ? ` blur(${Math.round(settings.blurPx)}px)`
+      : '';
+  return `brightness(${b}%) contrast(${c}%) saturate(${s}%) sepia(${sepia}%)${blurPart}`;
 }
+
 

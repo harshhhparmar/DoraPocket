@@ -485,7 +485,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
       const img = new Image();
       img.onload = () => {
         try {
-          const maxDim = 720;
+          const maxDim = 960;
           let width = img.naturalWidth || img.width || 800;
           let height = img.naturalHeight || img.height || 600;
           if (width > maxDim || height > maxDim) {
@@ -505,7 +505,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
-            const jpegUrl = canvas.toDataURL('image/jpeg', 0.78);
+            const jpegUrl = canvas.toDataURL('image/jpeg', 0.84);
             if (jpegUrl && jpegUrl.startsWith('data:image/')) {
               resolve(jpegUrl);
               return;
