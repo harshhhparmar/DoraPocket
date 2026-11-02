@@ -505,46 +505,75 @@ export function validateBirthdayDetails(config: BirthdayConfig): {
   };
 }
 
-export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_slug_v4';
+export const STORAGE_SHARE_ID_KEY = 'dorapocket_share_slug_v5';
 
 /**
- * Purges legacy localStorage keys (including any cached "Svetang" or "Nobita" examples
- * and old random 6-character share IDs) so the website always uses clean, readable links.
+ * Generates a short 4-character alphanumeric session token (e.g. "4k9m")
+ * so every user's birthday website has a unique link slug and never collides
+ * with or exposes another user's confidential data in Supabase.
+ */
+export function generateSessionToken(): string {
+  const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
+  let token = '';
+  for (let i = 0; i < 4; i++) {
+    token += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return token;
+}
+
+/**
+ * Returns true if the configuration is still identical to the untouched default template
+ * (so we never auto-upload default placeholder data to Supabase before the user edits).
+ */
+export function isDefaultUnmodifiedConfig(config: BirthdayConfig): boolean {
+  if (!config) return true;
+  const isDefaultName =
+    !config.recipientName ||
+    config.recipientName.trim() === '' ||
+    config.recipientName.trim() === DEFAULT_RECIPIENT_PLACEHOLDER;
+  const isDefaultSender =
+    !config.senderName ||
+    config.senderName.trim() === '' ||
+    config.senderName.trim() === DEFAULT_SENDER_PLACEHOLDER;
+  const isDefaultMessage =
+    config.personalMessage === DEFAULT_BIRTHDAY_CONFIG.personalMessage;
+  const isDefaultMemories =
+    Array.isArray(config.memories) &&
+    config.memories.length === DEFAULT_MEMORIES.length &&
+    config.memories.every((m, idx) => m.imageUrl === DEFAULT_MEMORIES[idx]?.imageUrl);
+  const isDefaultWishes =
+    Array.isArray(config.wishes) &&
+    config.wishes.length === DEFAULT_BIRTHDAY_CONFIG.wishes.length &&
+    config.wishes.every(
+      (w, idx) => w.message === DEFAULT_BIRTHDAY_CONFIG.wishes[idx]?.message
+    );
+
+  return (
+    isDefaultName &&
+    isDefaultSender &&
+    isDefaultMessage &&
+    isDefaultMemories &&
+    isDefaultWishes
+  );
+}
+
+/**
+ * Purges any stored `dorapocket_*` keys from window.localStorage so a new user
+ * accessing the website on the same browser or preview environment never sees
+ * a previous user's confidential photos, wishes, or personal messages.
  */
 export function purgeLegacyStorage(): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    const legacyKeys = [
-      'dorapocket_birthday_draft_v1',
-      'dorapocket_birthday_draft_v2',
-      'dorapocket_share_id_v1',
-      'dorapocket_share_id_v2',
-      'dorapocket_share_id_v3',
-      'dorapocket_share_cache_dorav4amjv',
-    ];
-    for (const k of legacyKeys) {
-      window.localStorage.removeItem(k);
-    }
-
-    const keysToCheck: string[] = [];
+    const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i++) {
       const key = window.localStorage.key(i);
       if (key && key.startsWith('dorapocket_')) {
-        keysToCheck.push(key);
+        keysToRemove.push(key);
       }
     }
-
-    for (const key of keysToCheck) {
-      const val = window.localStorage.getItem(key) || '';
-      const lower = val.toLowerCase();
-      if (
-        lower.includes('svetang') ||
-        lower.includes('svetu') ||
-        lower.includes('dorav4amjv') ||
-        lower.includes('cropped-photo-c29ee7e5df85')
-      ) {
-        window.localStorage.removeItem(key);
-      }
+    for (const key of keysToRemove) {
+      window.localStorage.removeItem(key);
     }
   } catch {
     // Ignore storage access errors
@@ -729,26 +758,31 @@ const RESERVED_ROUTE_SEGMENTS = new Set([
 ]);
 
 /**
- * Checks whether a stored share slug is a clean, human-readable birthday slug
- * (e.g. "riya", "harsh", "birthday") and not an old random gibberish string.
+ * Checks whether a stored share slug is a clean, valid birthday slug
+ * and not a shared global placeholder like "birthday" or "dorav4amjv".
  */
 export function isCleanShortShareId(id: string | null | undefined): boolean {
   if (!id || typeof id !== 'string') return false;
   const trimmed = id.trim().toLowerCase();
   if (RESERVED_ROUTE_SEGMENTS.has(trimmed)) return false;
-  if (trimmed.startsWith('dorav4')) return false;
-  // Reject old 6-character random alphanumeric strings that mix digits and random consonants (e.g. "7x9k2m")
-  if (/^[a-z0-9]{6}$/.test(trimmed) && /\d/.test(trimmed) && /[a-z]/.test(trimmed)) {
-    return false;
-  }
+  if (trimmed === 'birthday' || trimmed.startsWith('dorav4')) return false;
   return /^[a-z0-9][a-z0-9_-]{1,30}$/.test(trimmed);
 }
 
 /**
- * Converts a birthday person's name into a clean, human-readable URL slug
- * (e.g. "Riya" -> "riya", "Aarav Sharma" -> "aarav-sharma", or "birthday" by default).
+ * Converts a birthday person's name into a clean, unique URL slug with a 4-character
+ * session suffix (e.g. "Riya" -> "riya-4k9m", or "bday-4k9m" by default) so two different
+ * users never overwrite or read each other's confidential data in Supabase.
  */
-export function generateClientShareId(recipientName?: string): string {
+export function generateClientShareId(
+  recipientName?: string,
+  sessionSuffix?: string
+): string {
+  const suffix =
+    sessionSuffix && /^[a-z0-9]{3,6}$/i.test(sessionSuffix.trim())
+      ? sessionSuffix.trim().toLowerCase()
+      : generateSessionToken();
+
   const raw = (recipientName || '').trim();
   const lower = raw.toLowerCase();
   if (
@@ -756,19 +790,20 @@ export function generateClientShareId(recipientName?: string): string {
     lower === DEFAULT_RECIPIENT_PLACEHOLDER.toLowerCase() ||
     lower === 'friend' ||
     lower === 'untitled' ||
-    lower === 'birthday'
+    lower === 'birthday' ||
+    lower === 'new'
   ) {
-    return 'birthday';
+    return `bday-${suffix}`;
   }
-  const slug = lower
+  const baseSlug = lower
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 28)
+    .slice(0, 20)
     .replace(/-+$/g, '');
-  if (!slug || slug.length < 2 || RESERVED_ROUTE_SEGMENTS.has(slug)) {
-    return 'birthday';
+  if (!baseSlug || baseSlug.length < 2 || RESERVED_ROUTE_SEGMENTS.has(baseSlug)) {
+    return `bday-${suffix}`;
   }
-  return slug;
+  return `${baseSlug}-${suffix}`;
 }
 
 /**

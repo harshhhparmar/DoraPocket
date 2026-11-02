@@ -23,8 +23,10 @@ import {
   extractYouTubeVideoId,
   formatCleanDisplayOrigin,
   generateClientShareId,
+  generateSessionToken,
   generateStandaloneBirthdayHtml,
   isCleanShortShareId,
+  isDefaultUnmodifiedConfig,
   moveItemInArray,
   normalizeBirthdayConfig,
   sanitizeShareSlug,
@@ -105,28 +107,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
   const [customImageUrl, setCustomImageUrl] = useState('');
   const [customImageCaption, setCustomImageCaption] = useState('');
 
+  // Per-session unique 4-character suffix so two users with the same name never overwrite or read each other's Supabase record
+  const sessionSuffixRef = useRef<string>(generateSessionToken());
+
   // Clean Share Slug & Upload state
-  const [shareId, setShareId] = useState<string | null>(() => {
-    const nameSlug = generateClientShareId(config.recipientName);
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
-        if (stored && isCleanShortShareId(stored)) {
-          // If recipientName is customized, prefer matching slug unless stored is already custom
-          if (nameSlug !== 'birthday' && stored === 'birthday') {
-            window.localStorage.setItem(STORAGE_SHARE_ID_KEY, nameSlug);
-            return nameSlug;
-          }
-          return stored;
-        }
-        window.localStorage.setItem(STORAGE_SHARE_ID_KEY, nameSlug);
-        return nameSlug;
-      } catch {
-        return nameSlug;
-      }
-    }
-    return nameSlug;
-  });
+  const [shareId, setShareId] = useState<string | null>(() =>
+    generateClientShareId(config.recipientName, sessionSuffixRef.current)
+  );
   const [isCustomSlug, setIsCustomSlug] = useState(false);
   const [isPublishingShare, setIsPublishingShare] = useState(false);
   const [shareSuccessMsg, setShareSuccessMsg] = useState<string | null>(null);
@@ -136,27 +123,29 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
     null
   );
 
-  // Automatically keep the share slug aligned with the birthday person's name unless manually customized
+  // Automatically keep the share slug aligned with the birthday person's name + unique session suffix unless manually customized
   useEffect(() => {
     if (isCustomSlug) return;
-    const nextSlug = generateClientShareId(config.recipientName);
+    const nextSlug = generateClientShareId(
+      config.recipientName,
+      sessionSuffixRef.current
+    );
     if (nextSlug && nextSlug !== shareId) {
       setShareId(nextSlug);
     }
   }, [config.recipientName, isCustomSlug]);
 
-  // Keep the active shareId cache in localStorage and cloud backend synced silently with every user edit
+  // Keep the active shareId synced to cloud backend ONLY when the user has customized the template (never writing to persistent localStorage)
   useEffect(() => {
     if (!shareId || typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(STORAGE_SHARE_ID_KEY, shareId);
-      window.localStorage.setItem(
-        `dorapocket_share_cache_${shareId}`,
-        JSON.stringify(config)
-      );
-      window.localStorage.setItem(STORAGE_DRAFT_KEY, JSON.stringify(config));
+      window.sessionStorage.setItem(STORAGE_SHARE_ID_KEY, shareId);
     } catch {
       // Ignore storage quota
+    }
+
+    if (isDefaultUnmodifiedConfig(config)) {
+      return;
     }
 
     const timer = window.setTimeout(() => {
@@ -770,7 +759,10 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
         let resolvedId =
           shareId && isCleanShortShareId(shareId)
             ? shareId
-            : generateClientShareId(config.recipientName);
+            : generateClientShareId(
+                config.recipientName,
+                sessionSuffixRef.current
+              );
         const resolvedConfig: BirthdayConfig = config;
 
         // 1. Save silently to cloud database
@@ -806,11 +798,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
 
         setShareId(resolvedId);
         try {
-          window.localStorage.setItem(STORAGE_SHARE_ID_KEY, resolvedId);
-          window.localStorage.setItem(
-            `dorapocket_share_cache_${resolvedId}`,
-            JSON.stringify(resolvedConfig)
-          );
+          window.sessionStorage.setItem(STORAGE_SHARE_ID_KEY, resolvedId);
         } catch {
           // Ignore storage error
         }
@@ -1068,7 +1056,12 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const freshId = generateClientShareId('new');
+                    sessionSuffixRef.current = generateSessionToken();
+                    setIsCustomSlug(false);
+                    const freshId = generateClientShareId(
+                      'new',
+                      sessionSuffixRef.current
+                    );
                     setShareId(freshId);
                     onChange({
                       ...DEFAULT_BIRTHDAY_CONFIG,
@@ -1097,8 +1090,13 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                     key={preset.id}
                     type="button"
                     onClick={() => {
+                      sessionSuffixRef.current = generateSessionToken();
+                      setIsCustomSlug(false);
                       const nextPreset = applyCharacterPreset(preset.id, config);
-                      const freshId = generateClientShareId(nextPreset.recipientName);
+                      const freshId = generateClientShareId(
+                        nextPreset.recipientName,
+                        sessionSuffixRef.current
+                      );
                       setShareId(freshId);
                       onChange(nextPreset);
                       showToast(`Loaded ${preset.label} preset ✨`);
@@ -2472,6 +2470,14 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      sessionSuffixRef.current = generateSessionToken();
+                      setIsCustomSlug(false);
+                      setShareId(
+                        generateClientShareId(
+                          DEFAULT_BIRTHDAY_CONFIG.recipientName,
+                          sessionSuffixRef.current
+                        )
+                      );
                       onResetDefault();
                       showToast('Reset birthday studio to clean template 🔄');
                     }}

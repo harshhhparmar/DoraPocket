@@ -44,46 +44,28 @@ export default function App() {
       : null
   );
   const skipNextRemoteFetchRef = React.useRef(false);
+  const isOwnSessionShareRef = React.useRef(false);
 
-  // Synchronously purge legacy v1/v2 keys and any old example data before reading initial state
+  // Synchronously purge any stored localStorage keys so a new user never sees previous users' confidential data
   if (typeof window !== 'undefined') {
     purgeLegacyStorage();
   }
 
-  // 1. Initialize BirthdayConfig from URL hash (#d=...), share cache, localStorage draft, or clean default template
-  const [config, setConfig] = useState<BirthdayConfig>(() => {
+  // 1. Creator Studio state: ALWAYS starts with a clean, neutral default template for every new visitor
+  const [config, setConfig] = useState<BirthdayConfig>(DEFAULT_BIRTHDAY_CONFIG);
+
+  // 2. Shared Link Viewer state: Holds fetched birthday data ONLY when viewing a shared link (?s=<id>, /<id>, or #d=...)
+  const [sharedConfig, setSharedConfig] = useState<BirthdayConfig | null>(() => {
     if (typeof window !== 'undefined') {
-      try {
-        const hashPayload = decodeShareHashPayload(window.location.hash);
-        if (hashPayload) {
-          return normalizeBirthdayConfig(hashPayload);
-        }
-        if (sharedId && sharedId !== 'dorav4amjv') {
-          const cachedShare = window.localStorage.getItem(
-            `dorapocket_share_cache_${sharedId}`
-          );
-          if (cachedShare) {
-            const parsedShare = JSON.parse(cachedShare) as Partial<BirthdayConfig>;
-            if (parsedShare && typeof parsedShare.recipientName === 'string') {
-              return normalizeBirthdayConfig(parsedShare);
-            }
-          }
-        }
-        const saved = window.localStorage.getItem(STORAGE_DRAFT_KEY);
-        if (saved && !sharedId) {
-          const parsed = JSON.parse(saved) as Partial<BirthdayConfig>;
-          if (parsed && typeof parsed.recipientName === 'string') {
-            return normalizeBirthdayConfig(parsed);
-          }
-        }
-      } catch {
-        // Fallback to default config if localStorage is unavailable
+      const hashPayload = decodeShareHashPayload(window.location.hash);
+      if (hashPayload) {
+        return normalizeBirthdayConfig(hashPayload);
       }
     }
-    return DEFAULT_BIRTHDAY_CONFIG;
+    return null;
   });
 
-  // 2. Initialize ViewMode (?s=<id>, #d=..., or ?mode=experience opens fullscreen experience, ?autostart=1 opens studio)
+  // 3. Initialize ViewMode (?s=<id>, /<id>, #d=..., or ?mode=experience opens fullscreen experience, ?autostart=1 opens studio)
   const [viewMode, setViewMode] = useState<AppViewMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -194,64 +176,19 @@ export default function App() {
         foundConfig = decodeShareHashPayload(window.location.hash);
       }
 
-      // 4. Check browser localStorage cache for this specific share ID
-      if (!foundConfig) {
-        try {
-          const cached = window.localStorage.getItem(
-            `dorapocket_share_cache_${sharedId}`
-          );
-          if (cached) {
-            const parsed = JSON.parse(cached) as Partial<BirthdayConfig>;
-            if (parsed && typeof parsed.recipientName === 'string') {
-              foundConfig = parsed;
-            }
-          }
-        } catch {
-          // Ignore storage error
-        }
-      }
-
-      // 5. Try static JSON bundle (/shares/<id>.json) for this specific share ID
+      // 4. Try static JSON bundle (/shares/<id>.json) for this specific share ID
       if (!foundConfig) {
         foundConfig = await tryFetchShareJson(`/shares/${safeId}.json`);
-      }
-
-      // 6. Fallback to current browser draft ONLY if the draft belongs to this shareId
-      if (!foundConfig) {
-        try {
-          const currentDraftShareId = window.localStorage.getItem(
-            STORAGE_SHARE_ID_KEY
-          );
-          const savedDraft = window.localStorage.getItem(STORAGE_DRAFT_KEY);
-          if (
-            savedDraft &&
-            (!currentDraftShareId || currentDraftShareId === sharedId)
-          ) {
-            const parsed = JSON.parse(savedDraft) as Partial<BirthdayConfig>;
-            if (parsed && typeof parsed.recipientName === 'string') {
-              foundConfig = parsed;
-            }
-          }
-        } catch {
-          // Ignore storage error
-        }
       }
 
       if (cancelled) return;
 
       if (foundConfig) {
         const normalized = normalizeBirthdayConfig(foundConfig);
-        setConfig(normalized);
+        // Store ONLY in read-only sharedConfig — never overwrite the Studio editor config or localStorage
+        setSharedConfig(normalized);
         setViewMode('experience');
         setActivePreviewStep('welcome');
-        try {
-          window.localStorage.setItem(
-            `dorapocket_share_cache_${sharedId}`,
-            JSON.stringify(normalized)
-          );
-        } catch {
-          // Ignore storage quota
-        }
       } else {
         setSharedSurpriseError(
           `Could not find birthday surprise link "${sharedId}". Please check the link or create a new birthday surprise.`
@@ -275,14 +212,43 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  /**
+   * Navigates to Landing or Studio while ensuring any viewed shared link's confidential
+   * photos/wishes are cleared and never leaked into the Studio editor.
+   */
+  const navigateToCreatorMode = useCallback(
+    (targetMode: 'landing' | 'studio', targetTab?: EditorTabId) => {
+      if (sharedId) {
+        setSharedId(null);
+        setSharedConfig(null);
+        setSharedSurpriseError(null);
+        setIsLoadingSharedSurprise(false);
+        if (!isOwnSessionShareRef.current) {
+          setConfig(DEFAULT_BIRTHDAY_CONFIG);
+        }
+        isOwnSessionShareRef.current = false;
+        try {
+          window.history.pushState({}, '', '/');
+        } catch {
+          // Ignore history error
+        }
+      }
+      if (targetTab) {
+        setActiveEditorTab(targetTab);
+      }
+      setViewMode(targetMode);
+    },
+    [sharedId]
+  );
+
   const handleSaveDraft = useCallback(
     (nextConfig: BirthdayConfig = config) => {
       try {
-        window.localStorage.setItem(
+        window.sessionStorage.setItem(
           STORAGE_DRAFT_KEY,
           JSON.stringify(nextConfig)
         );
-        const activeShareId = window.localStorage.getItem(STORAGE_SHARE_ID_KEY);
+        const activeShareId = window.sessionStorage.getItem(STORAGE_SHARE_ID_KEY);
         if (activeShareId) {
           void saveWebsiteToSupabase(activeShareId, nextConfig);
         }
@@ -297,26 +263,27 @@ export default function App() {
     [config]
   );
 
-  // Auto-save draft locally when config changes in studio mode
-  useEffect(() => {
-    if (isLoadingSharedSurprise) return;
-    try {
-      window.localStorage.setItem(STORAGE_DRAFT_KEY, JSON.stringify(config));
-    } catch {
-      // Ignore storage quota limit
-    }
-  }, [config, isLoadingSharedSurprise]);
-
   const handleResetDefault = () => {
     setConfig(DEFAULT_BIRTHDAY_CONFIG);
+    setSharedConfig(null);
+    setSharedId(null);
+    isOwnSessionShareRef.current = false;
     setActivePreviewStep('welcome');
     try {
+      window.sessionStorage.removeItem(STORAGE_DRAFT_KEY);
+      window.sessionStorage.removeItem(STORAGE_SHARE_ID_KEY);
       window.localStorage.removeItem(STORAGE_DRAFT_KEY);
       window.localStorage.removeItem(STORAGE_SHARE_ID_KEY);
+      if (window.location.pathname !== '/') {
+        window.history.pushState({}, '', '/');
+      }
     } catch {
       // Ignore
     }
   };
+
+  const activeExperienceConfig =
+    sharedId && sharedConfig ? sharedConfig : config;
 
   return (
     <div
@@ -337,7 +304,7 @@ export default function App() {
             href="#top"
             onClick={(e) => {
               e.preventDefault();
-              setViewMode('landing');
+              navigateToCreatorMode('landing');
             }}
             className="font-display text-lg sm:text-xl font-bold tracking-tight text-[#183247] hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0"
           >
@@ -351,7 +318,7 @@ export default function App() {
           >
             <button
               type="button"
-              onClick={() => setViewMode('landing')}
+              onClick={() => navigateToCreatorMode('landing')}
               className={`hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 viewMode === 'landing'
                   ? 'text-[#168DCE] font-semibold underline underline-offset-8 decoration-2'
@@ -362,10 +329,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setViewMode('studio');
-                setActiveEditorTab('details');
-              }}
+              onClick={() => navigateToCreatorMode('studio', 'details')}
               className={`hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 viewMode === 'studio' && activeEditorTab !== 'share'
                   ? 'text-[#168DCE] font-semibold underline underline-offset-8 decoration-2'
@@ -387,10 +351,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setViewMode('studio');
-                setActiveEditorTab('share');
-              }}
+              onClick={() => navigateToCreatorMode('studio', 'share')}
               className={`hover:text-[#168DCE] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 viewMode === 'studio' && activeEditorTab === 'share'
                   ? 'text-[#168DCE] font-semibold underline underline-offset-8 decoration-2'
@@ -406,7 +367,7 @@ export default function App() {
             {viewMode === 'landing' ? (
               <button
                 type="button"
-                onClick={() => setViewMode('studio')}
+                onClick={() => navigateToCreatorMode('studio', 'details')}
                 className="px-3.5 sm:px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Create Website 🎂
@@ -422,10 +383,12 @@ export default function App() {
             ) : (
               <button
                 type="button"
-                onClick={() => setViewMode('studio')}
+                onClick={() => navigateToCreatorMode('studio', 'details')}
                 className="px-3.5 sm:px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white font-display font-semibold text-xs sm:text-sm transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Edit Studio ✏️
+                {sharedId && !isOwnSessionShareRef.current
+                  ? 'Create Your Own 🎂'
+                  : 'Edit Studio ✏️'}
               </button>
             )}
           </div>
@@ -440,7 +403,7 @@ export default function App() {
         <div className="grid grid-cols-4 gap-1 max-w-md mx-auto">
           <button
             type="button"
-            onClick={() => setViewMode('landing')}
+            onClick={() => navigateToCreatorMode('landing')}
             className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
               viewMode === 'landing'
                 ? 'bg-[#EAF7FF] text-[#168DCE] font-bold'
@@ -452,11 +415,11 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
-              setViewMode('studio');
               setMobilePane('edit');
-              if (activeEditorTab === 'share') {
-                setActiveEditorTab('details');
-              }
+              navigateToCreatorMode(
+                'studio',
+                activeEditorTab === 'share' ? 'details' : activeEditorTab
+              );
             }}
             className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
               viewMode === 'studio' && activeEditorTab !== 'share'
@@ -480,9 +443,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
-              setViewMode('studio');
               setMobilePane('edit');
-              setActiveEditorTab('share');
+              navigateToCreatorMode('studio', 'share');
             }}
             className={`py-2 px-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap text-center cursor-pointer ${
               viewMode === 'studio' && activeEditorTab === 'share'
@@ -621,19 +583,17 @@ export default function App() {
                   onOpenFullscreenExperience={() => setViewMode('experience')}
                   onOpenShareLink={(targetId) => {
                     skipNextRemoteFetchRef.current = true;
+                    isOwnSessionShareRef.current = true;
                     try {
-                      window.localStorage.setItem(
-                        `dorapocket_share_cache_${targetId}`,
-                        JSON.stringify(config)
-                      );
                       window.history.pushState(
                         {},
                         '',
                         `/${encodeURIComponent(targetId)}`
                       );
                     } catch {
-                      // Ignore history/storage restriction
+                      // Ignore history restriction
                     }
+                    setSharedConfig(config);
                     setSharedId(targetId);
                     setIsLoadingSharedSurprise(false);
                     setSharedSurpriseError(null);
@@ -687,7 +647,7 @@ export default function App() {
           <section className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 bg-white/85 backdrop-blur-xs px-5 py-3 rounded-2xl border border-[#64C8FF]/50">
               <div className="text-xs font-semibold text-[#168DCE]">
-                🎂 Viewing {config.recipientName || 'Birthday'}&apos;s Interactive
+                🎂 Viewing {activeExperienceConfig.recipientName || 'Birthday'}&apos;s Interactive
                 Birthday Experience
               </div>
               <div className="flex items-center gap-2.5">
@@ -700,10 +660,12 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setViewMode('studio')}
+                  onClick={() => navigateToCreatorMode('studio', 'details')}
                   className="px-3.5 py-1.5 rounded-xl bg-[#EAF7FF] hover:bg-[#64C8FF]/30 text-[#183247] text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  Customize This Website ✏️
+                  {sharedId && !isOwnSessionShareRef.current
+                    ? 'Create Your Own Website ✨'
+                    : 'Customize This Website ✏️'}
                 </button>
               </div>
             </div>
@@ -726,10 +688,7 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSharedSurpriseError(null);
-                    setViewMode('studio');
-                  }}
+                  onClick={() => navigateToCreatorMode('studio', 'details')}
                   className="px-4 py-2 rounded-xl bg-[#168DCE] hover:bg-[#1276AD] text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   Create a New Birthday Surprise 🎂
@@ -752,12 +711,12 @@ export default function App() {
               </div>
             ) : (
               <BirthdayExperience
-                config={config}
+                config={activeExperienceConfig}
                 activeStepId={activePreviewStep}
                 onStepChange={setActivePreviewStep}
                 onTriggerConfetti={triggerConfetti}
                 isFullscreen={true}
-                onToggleFullscreen={() => setViewMode('studio')}
+                onToggleFullscreen={() => navigateToCreatorMode('studio', 'details')}
                 isMusicPlaying={isMusicPlaying}
                 onToggleMusic={() => setIsMusicPlaying((prev) => !prev)}
               />
@@ -779,14 +738,14 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
             <button
               type="button"
-              onClick={() => setViewMode('landing')}
+              onClick={() => navigateToCreatorMode('landing')}
               className="hover:text-[#168DCE] font-medium cursor-pointer"
             >
               Landing Page
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('studio')}
+              onClick={() => navigateToCreatorMode('studio', 'details')}
               className="hover:text-[#168DCE] font-medium cursor-pointer"
             >
               Customization Editor
